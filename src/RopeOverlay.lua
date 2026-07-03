@@ -16,7 +16,6 @@ local SELECTED_COLOR = Color3.fromRGB(255, 200, 50)
 local ADD_PREVIEW_COLOR = Color3.fromRGB(50, 200, 50)
 local SNAP_MARKER_COLOR = Color3.fromRGB(50, 255, 50)
 local FREE_MARKER_COLOR = Color3.fromRGB(220, 220, 220)
-local ENDPOINT_MARKER_COLOR = Color3.fromRGB(255, 200, 50)
 
 local function drawPolyline(wire: WireframeHandleAdornment, points: { Vector3 })
 	for i = 1, #points - 1 do
@@ -121,19 +120,8 @@ local function RopeOverlay(props: {
 		ref = addPreviewRef,
 	})
 
-	-- Selected rope endpoint markers (the handles render on top of these).
-	if selectedPolyline and #selectedPolyline >= 2 then
-		children.EndpointA = e(VertexMarker, {
-			Position = selectedPolyline[1],
-			Color = ENDPOINT_MARKER_COLOR,
-			Radius = 0.25,
-		})
-		children.EndpointB = e(VertexMarker, {
-			Position = selectedPolyline[#selectedPolyline],
-			Color = ENDPOINT_MARKER_COLOR,
-			Radius = 0.25,
-		})
-	end
+	-- The selected rope's endpoint spheres are rendered by the session's
+	-- GrabPointHandle draggers (they're interactive), not here.
 
 	-- Add-mode hover marker: green when snapped onto part geometry.
 	if props.AddHoverPoint then

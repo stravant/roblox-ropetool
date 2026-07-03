@@ -258,6 +258,38 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("grab-dragging an endpoint snaps to part corners like Add", function()
+		withSession(function(session, settings)
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			-- A post whose corner the endpoint gets dropped onto.
+			local post = Instance.new("Part")
+			post.Size = Vector3.new(2, 12, 2)
+			post.CFrame = CFrame.new(kRegionCenter + Vector3.new(14, 6, 0))
+			post.Anchored = true
+			post.Parent = workspace
+			-- Checkpoint the setup so the undo below reverts only the drag.
+			ChangeHistoryService:SetWaypoint("RopeToolTestSetup")
+			local corner = post.Position + Vector3.new(1, 6, 1)
+
+			t.expect(session.SelectRopeFromPart(parts[3])).toBeTruthy()
+			local info = session.GetSelectedInfo()
+			local target = if nearV(info.PointB, kPointB, 0.05) then "B" else "A"
+
+			-- Drop the endpoint slightly off the post corner: the grab drag
+			-- snaps it exactly onto the corner.
+			session.StartHandleDrag(target)
+			session.ApplyHandleDragTo(corner + Vector3.new(-0.1, -0.15, -0.1), post)
+			session.EndHandleDrag()
+			t.expect(selectionSpans(session, kPointA, corner, 0.001)).toBeTruthy()
+
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
+		end)
+	end)
+
 	t.test("dragging a handle on a single part converts it to a 4-segment rope", function()
 		withSession(function(session, settings)
 			settings.Mode = "Move"

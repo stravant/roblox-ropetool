@@ -12,6 +12,7 @@ local Signal = require(Packages.Signal)
 
 local DraggerContext_PluginImpl = (require :: any)(DraggerFramework.Implementation.DraggerContext_PluginImpl)
 local DraggerToolComponent = (require :: any)(DraggerFramework.DraggerTools.DraggerToolComponent)
+local GrabPointHandle = require("./Dragger/GrabPointHandle")
 local MoveHandles = require("./Dragger/MoveHandles")
 
 local Settings = require("./Settings")
@@ -806,6 +807,56 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		changeSignal:Fire()
 	end
 
+	-- A grab drag (the endpoint sphere) moves the endpoint to an absolute
+	-- position rather than by an axis delta.
+	local function applyDragTargetPosition(position: Vector3)
+		local sel = mSelected
+		if not sel then
+			return
+		end
+		if mDragTarget == "A" then
+			sel.pointA = position
+		elseif mDragTarget == "B" then
+			sel.pointB = position
+		else
+			return
+		end
+		rebuildSelected(sel)
+		syncSettingsFromSelection(sel)
+		changeSignal:Fire()
+	end
+
+	-- Resolve the cursor ray to a new endpoint position during a grab drag,
+	-- with the same snapping as the Add tool: raycast the scene (excluding the
+	-- rope's own parts, which follow the cursor), snap to the hit part's
+	-- corners/edges, or fall back to a horizontal plane through the endpoint's
+	-- pre-drag position when over empty space.
+	local function resolveEndpointDragTarget(mouseRay: Ray): Vector3?
+		local sel = mSelected
+		local direction = mouseRay.Direction.Unit
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = if sel then (table.clone(sel.parts) :: any) else {}
+		local result = workspace:Raycast(mouseRay.Origin, direction * 10000, params)
+		if result and result.Instance:IsA("BasePart") then
+			local snapped = snapAddPosition(result.Position, result.Instance :: BasePart, UserInputService:GetMouseLocation())
+			return snapped
+		end
+		local planePoint = if mDragTarget == "A" then mDragStartA else mDragStartB
+		if not planePoint then
+			return nil
+		end
+		local denom = direction:Dot(Vector3.yAxis)
+		if math.abs(denom) < 1e-4 then
+			return nil
+		end
+		local t = (planePoint - mouseRay.Origin):Dot(Vector3.yAxis) / denom
+		if t <= 0 then
+			return nil
+		end
+		return mouseRay.Origin + direction * t
+	end
+
 	local function endDrag()
 		if mDragRecording then
 			ChangeHistoryService:FinishRecording(mDragRecording, Enum.FinishRecordingOperation.Commit)
@@ -846,6 +897,36 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		Visible = handlesVisible,
 	})
 
+	-- The endpoint spheres: freely-draggable grab points with Add-style
+	-- snapping, sitting at the center of each endpoint's arrow handles.
+	local endpointAGrab = GrabPointHandle.new(draggerContext, {
+		GetPosition = function(): Vector3?
+			local sel = mSelected
+			return if sel then sel.pointA else nil
+		end,
+		ResolveTarget = resolveEndpointDragTarget,
+		StartTransform = function()
+			startDrag("A")
+		end,
+		ApplyTarget = applyDragTargetPosition,
+		EndTransform = endDrag,
+		Visible = handlesVisible,
+	})
+
+	local endpointBGrab = GrabPointHandle.new(draggerContext, {
+		GetPosition = function(): Vector3?
+			local sel = mSelected
+			return if sel then sel.pointB else nil
+		end,
+		ResolveTarget = resolveEndpointDragTarget,
+		StartTransform = function()
+			startDrag("B")
+		end,
+		ApplyTarget = applyDragTargetPosition,
+		EndTransform = endDrag,
+		Visible = handlesVisible,
+	})
+
 	local sagHandles = MoveHandles.new(draggerContext, {
 		GetBoundingBox = function()
 			local sel = mSelected
@@ -870,6 +951,8 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return (endpointAHandles:hitTest(ray, false)) ~= nil
 			or (endpointBHandles:hitTest(ray, false)) ~= nil
 			or (sagHandles:hitTest(ray, false)) ~= nil
+			or (endpointAGrab:hitTest(ray, false)) ~= nil
+			or (endpointBGrab:hitTest(ray, false)) ~= nil
 	end
 
 	local rootElement = Roact.createElement(DraggerToolComponent, {
@@ -883,6 +966,8 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				endpointAHandles,
 				endpointBHandles,
 				sagHandles,
+				endpointAGrab,
+				endpointBGrab,
 			},
 		},
 	})
@@ -1133,6 +1218,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	end
 	session.ApplyHandleDrag = function(delta: Vector3)
 		applyDrag(CFrame.new(delta))
+	end
+	-- Drive a grab drag (the endpoint sphere) to a world position, with the
+	-- same snapping as Add. Pass hitPart when the position lands on geometry.
+	session.ApplyHandleDragTo = function(worldPos: Vector3, hitPart: BasePart?)
+		local target = snapAddPosition(worldPos, hitPart, nil)
+		applyDragTargetPosition(target)
 	end
 	session.EndHandleDrag = function()
 		endDrag()

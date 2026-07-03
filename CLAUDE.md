@@ -15,8 +15,9 @@ Modes:
 - **Add** — click two attachment points (snapping to part corners/edges, including mesh edges via
   the Geometry package's `blackboxFindClosestMeshEdge`) to build a sagging rope between them.
 - **Move** — hover/click to select a rope (discovered by walking matching adjacent parts), then
-  drag its two endpoint handles or the vertical-only middle handle (sag). Panel edits (segments,
-  type, diameter, sag, color, material) apply to the selected rope.
+  drag its endpoints (axis arrows, or the endpoint sphere for a free drag with Add-style
+  snapping) or the vertical-only middle handle (sag). Panel edits (segments, type, diameter,
+  sag, color, material) apply to the selected rope.
 
 ## Build Commands
 
@@ -50,7 +51,8 @@ Three-layer design:
      place during drags.
    - `src/ropeCurve.lua` — The parabolic sag curve: point generation and sag estimation (inverse).
    - `src/Dragger/` — MoveHandles (with optional axis filter for the vertical-only sag handle)
-     built on DraggerFramework.
+     and GrabPointHandle (the freely-draggable endpoint sphere with Add-style snapping), built
+     on DraggerFramework.
 
 2. **Settings layer** — Persistent configuration via `plugin:GetSetting`/`SetSetting`.
    - `src/Settings.lua` — Settings key `"ropeToolState"`. Stores mode, segments, segment type,
