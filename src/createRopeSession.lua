@@ -315,6 +315,17 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		sel.polyline = ropeCurve.computePoints(sel.pointA, sel.pointB, sel.sag, sel.segments)
 	end
 
+	-- A single-part "rope" splits into segments only once it actually needs
+	-- them to show a curve: the moment its sag becomes nonzero (a straight
+	-- single part is left alone -- endpoint drags just move/resize it). Called
+	-- wherever the sag can change, before the rebuild; the split lands inside
+	-- that edit's recording, so one undo reverts both together.
+	local function applySinglePartSplit(sel: SelectedRope)
+		if sel.segments == 1 and math.abs(sel.sag) > 1e-3 then
+			sel.segments = 4
+		end
+	end
+
 	-- Run a one-shot edit inside a ChangeHistory recording, committing only
 	-- if body() reports a change.
 	local function runUndoableOperation(name: string, body: () -> boolean): boolean
@@ -386,9 +397,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			sel.color = Color3.new(c[1], c[2], c[3])
 			sel.material = (Enum.Material :: any)[currentSettings.RopeMaterial] or Enum.Material.Fabric
 			sel.materialVariant = currentSettings.RopeMaterialVariant
+			applySinglePartSplit(sel)
 			rebuildSelected(sel)
 			return true
 		end)
+		-- The single-part split may have raised the segment count past what the
+		-- panel asked for; reflect what was actually built.
+		currentSettings.Segments = sel.segments
 		changeSignal:Fire()
 	end
 
@@ -793,16 +808,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		mDragStartB = sel.pointB
 		mDragStartSag = sel.sag
 		mDragRecording = ChangeHistoryService:TryBeginRecording(kDragNames[target] or "RopeTool Edit Rope")
-		-- A single-part "rope" can't show any curve (its only vertices are its
-		-- two ends), so grabbing any of its handles converts it to 4 segments up
-		-- front -- the drag immediately gets a rope-like effect. Done inside the
-		-- recording, so one undo reverts the whole drag including the split.
-		if sel.segments == 1 then
-			sel.segments = 4
-			rebuildSelected(sel)
-			syncSettingsFromSelection(sel)
-			changeSignal:Fire()
-		end
 	end
 
 	local function applyDrag(globalTransform: CFrame)
@@ -819,6 +824,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			-- Dragging the middle handle down increases the sag.
 			sel.sag = mDragStartSag - delta.Y
 		end
+		applySinglePartSplit(sel)
 		rebuildSelected(sel)
 		syncSettingsFromSelection(sel)
 		changeSignal:Fire()

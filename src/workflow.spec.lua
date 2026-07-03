@@ -349,7 +349,7 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
-	t.test("dragging a handle on a single part converts it to a 4-segment rope", function()
+	t.test("a single part splits into 4 segments only once it gets nonzero sag", function()
 		withSession(function(session, settings)
 			settings.Mode = "Move"
 			-- A lone elongated part: a 1-segment "rope".
@@ -358,23 +358,29 @@ return function(t: TestTypes.TestContext)
 			part.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 10, 0))
 			part.Anchored = true
 			part.Parent = workspace
-			-- Checkpoint the setup so the undo below reverts only the drag, not
+			-- Checkpoint the setup so the undos below revert only the edits, not
 			-- the part's creation.
 			ChangeHistoryService:SetWaypoint("RopeToolTestSetup")
 
 			t.expect(session.SelectRopeFromPart(part)).toBeTruthy()
 			t.expect(session.GetSelectedInfo().Segments).toBe(1)
 
-			-- Grabbing a handle splits it immediately so the drag has vertices
-			-- to curve, then the sag drag takes effect on the split rope.
+			-- An endpoint drag on a straight single part just moves/resizes it.
+			local info = session.GetSelectedInfo()
+			session.StartHandleDrag("A")
+			session.ApplyHandleDrag(Vector3.new(0, 2, 0))
+			session.EndHandleDrag()
+			t.expect(session.GetSelectedInfo().Segments).toBe(1)
+			t.expect(selectionSpans(session, info.PointA + Vector3.new(0, 2, 0), info.PointB, 0.01)).toBeTruthy()
+
+			-- The sag drag splits it, but only once the sag is actually nonzero.
 			session.StartHandleDrag("Sag")
-			t.expect(session.GetSelectedInfo().Segments).toBe(4)
+			t.expect(session.GetSelectedInfo().Segments).toBe(1)
 			session.ApplyHandleDrag(Vector3.new(0, -1.5, 0))
+			t.expect(session.GetSelectedInfo().Segments).toBe(4)
 			session.EndHandleDrag()
 
-			local info = session.GetSelectedInfo()
-			t.expect(info.Segments).toBe(4)
-			t.expect(near(info.Sag, 1.5, 0.05)).toBeTruthy()
+			t.expect(near(session.GetSelectedInfo().Sag, 1.5, 0.05)).toBeTruthy()
 
 			-- Rediscovery from scratch agrees with the tracked selection.
 			session.Deselect()
@@ -382,11 +388,17 @@ return function(t: TestTypes.TestContext)
 			t.expect(session.GetSelectedInfo().Segments).toBe(4)
 			t.expect(near(session.GetSelectedInfo().Sag, 1.5, 0.05)).toBeTruthy()
 
-			-- One undo reverts the whole drag, including the split.
+			-- One undo reverts the whole sag drag, including the split.
 			ChangeHistoryService:Undo()
 			settle()
 			t.expect(session.HasSelection()).toBeTruthy()
 			t.expect(session.GetSelectedInfo().Segments).toBe(1)
+
+			-- Setting a nonzero sag from the panel splits it the same way.
+			settings.Sag = 1
+			session.Update()
+			t.expect(session.GetSelectedInfo().Segments).toBe(4)
+			t.expect(settings.Segments).toBe(4)
 		end)
 	end)
 
