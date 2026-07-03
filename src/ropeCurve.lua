@@ -34,11 +34,25 @@ local function estimateSag(points: { Vector3 }): number
 	local b = points[n]
 	local chord = b - a
 	local chordLenSq = chord:Dot(chord)
+	-- The sag offset is purely vertical, so the point's chord parameter is
+	-- recovered exactly from the horizontal projection -- projecting onto the
+	-- full 3D chord would let the offset bleed into t on a sloped chord. A
+	-- near-vertical chord (no horizontal span) falls back to the full
+	-- projection; sag is ill-defined there anyway.
+	local chordXZ = Vector3.new(chord.X, 0, chord.Z)
+	local chordXZLenSq = chordXZ:Dot(chordXZ)
 	local total = 0
 	local count = 0
 	for i = 2, n - 1 do
 		local p = points[i]
-		local t = if chordLenSq < 1e-6 then (i - 1) / (n - 1) else math.clamp((p - a):Dot(chord) / chordLenSq, 0, 1)
+		local t: number
+		if chordXZLenSq > 1e-4 then
+			t = math.clamp((p - a):Dot(chordXZ) / chordXZLenSq, 0, 1)
+		elseif chordLenSq > 1e-6 then
+			t = math.clamp((p - a):Dot(chord) / chordLenSq, 0, 1)
+		else
+			t = (i - 1) / (n - 1)
+		end
 		local weight = 4 * t * (1 - t)
 		if weight > 0.4 then
 			local drop = (a:Lerp(b, t) - p).Y

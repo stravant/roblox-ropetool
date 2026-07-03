@@ -199,6 +199,8 @@ local function discoverRope(seedPart: Instance): Rope?
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	overlapParams.FilterDescendantsInstances = {}
+	-- The default MaxParts is small; endpoint queries must see every candidate.
+	overlapParams.MaxParts = 1000
 	while queueHead <= #queue do
 		local info = queue[queueHead]
 		queueHead += 1
