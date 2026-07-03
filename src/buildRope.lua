@@ -15,11 +15,15 @@ export type BuildRopeParams = {
 	Segments: number,
 	SegmentType: string, -- "Box" | "Cylinder"
 	Diameter: number,
+	-- Sphere caps on the rope's two ends (Cylinder mode only, where the flat
+	-- segment ends would otherwise show).
+	HaveEndcaps: boolean?,
 	Parent: Instance,
 	Props: RopeProps?,
 	-- Parts to reuse in order (the per-frame drag rebuild path); excess parts
 	-- are unparented (not destroyed, for undo), missing ones are created.
 	ExistingParts: { BasePart }?,
+	ExistingCaps: { BasePart }?,
 }
 
 -- A frame at mid whose X axis runs along dir. Both segment shapes are built
@@ -53,8 +57,9 @@ local function jointExtension(dirA: Vector3, dirB: Vector3, diameter: number): n
 end
 
 -- Build (or update in place) the chain of segment parts for a rope between two
--- points with the given sag. Returns the parts in chain order.
-local function buildRope(params: BuildRopeParams): { BasePart }
+-- points with the given sag. Returns the parts in chain order, plus the endcap
+-- parts (empty unless HaveEndcaps and Cylinder mode).
+local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
 	local points = ropeCurve.computePoints(params.PointA, params.PointB, params.Sag, params.Segments)
 	local existingParts = params.ExistingParts
 	local props = params.Props
@@ -132,7 +137,49 @@ local function buildRope(params: BuildRopeParams): { BasePart }
 		end
 	end
 
-	return parts
+	-- Sphere endcaps at the two rope ends, rounding off the exposed flat ends
+	-- of the outer cylinder segments.
+	local caps: { BasePart } = {}
+	local existingCaps = params.ExistingCaps
+	if params.HaveEndcaps == true and params.SegmentType == "Cylinder" then
+		for i, position in { params.PointA, params.PointB } do
+			local cap: Part
+			local existing = if existingCaps then existingCaps[i] else nil
+			if existing and existing:IsA("Part") then
+				cap = existing :: Part
+			else
+				local newCap = Instance.new("Part")
+				newCap.Name = "RopeEndcap"
+				newCap.TopSurface = Enum.SurfaceType.Smooth
+				newCap.BottomSurface = Enum.SurfaceType.Smooth
+				newCap.Anchored = true
+				newCap.CanCollide = false
+				cap = newCap
+			end
+			if props then
+				cap.Color = props.Color or Color3.fromRGB(105, 64, 40)
+				cap.Material = props.Material or Enum.Material.Fabric
+				cap.MaterialVariant = props.MaterialVariant or ""
+			elseif not existing then
+				cap.Color = Color3.fromRGB(105, 64, 40)
+				cap.Material = Enum.Material.Fabric
+			end
+			cap.Shape = Enum.PartType.Ball
+			cap.Size = Vector3.one * diameter
+			cap.CFrame = CFrame.new(position)
+			if cap.Parent ~= params.Parent then
+				cap.Parent = params.Parent
+			end
+			table.insert(caps, cap)
+		end
+	end
+	if existingCaps then
+		for i = #caps + 1, #existingCaps do
+			existingCaps[i].Parent = nil
+		end
+	end
+
+	return parts, caps
 end
 
 return buildRope

@@ -28,6 +28,7 @@ local function makeSettings(mode: string): Settings.RopeToolSettings
 		SegmentType = "Cylinder",
 		Sag = 2,
 		Diameter = 0.3,
+		HaveEndcaps = false,
 		RopeColor = { 0.412, 0.251, 0.157 },
 		RopeMaterial = "Fabric",
 		RopeMaterialVariant = "",

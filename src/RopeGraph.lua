@@ -63,6 +63,9 @@ export type Rope = {
 	-- end to the other, chainEdges[i] joins path[i] to path[i+1].
 	path: { number },
 	chainEdges: { number },
+	-- Sphere endcap parts found sitting on the chain's end vertices, in path
+	-- order (the cap at path[1] first, if both exist).
+	caps: { BasePart },
 	-- Aggregate properties of the chain, for the panel and rebuilds.
 	kind: string,
 	diameter: number,
@@ -145,12 +148,53 @@ local function joinTolerance(a: SegmentInfo, b: SegmentInfo): number
 	return math.max(kJoinToleranceFloor, (a.diameter + b.diameter) / 2 * kJoinToleranceFraction)
 end
 
+-- Whether a part reads as a rope endcap: a sphere whose diameter roughly
+-- matches the given one and which shares an appearance property with the rope.
+local function isMatchingCap(instance: Instance, diameter: number, color: Color3, material: Enum.Material): boolean
+	if not instance:IsA("Part") then
+		return false
+	end
+	local part = instance :: Part
+	if part.Shape ~= Enum.PartType.Ball then
+		return false
+	end
+	local size = part.Size
+	local capDiameter = (size.X + size.Y + size.Z) / 3
+	local scale = math.max(capDiameter, diameter, 0.001)
+	if math.abs(capDiameter - diameter) / scale > kCrossSectionTolerance then
+		return false
+	end
+	return part.Color == color or part.Material == material
+end
+
 -- Discover the rope containing seedPart: walk endpoint-to-endpoint adjacency
 -- from it, admitting only parts that read as segments and match the seed's
--- properties. Returns nil when seedPart itself isn't a plausible segment.
+-- properties. Sphere endcaps sitting on the chain's end vertices are picked up
+-- too, and a cap itself works as a seed (discovery re-seeds from the segment
+-- it caps). Returns nil when seedPart isn't a plausible segment or cap.
 local function discoverRope(seedPart: Instance): Rope?
 	local seedInfo = getSegmentInfo(seedPart)
 	if not seedInfo then
+		-- A sphere seed: re-seed from an adjacent segment whose endpoint sits
+		-- on the sphere's center (i.e. the segment it caps).
+		if seedPart:IsA("Part") and (seedPart :: Part).Shape == Enum.PartType.Ball then
+			local cap = seedPart :: Part
+			local capDiameter = (cap.Size.X + cap.Size.Y + cap.Size.Z) / 3
+			local searchRadius = math.max(kJoinToleranceFloor, capDiameter * kJoinToleranceFraction) + 0.05
+			local params = OverlapParams.new()
+			params.MaxParts = 1000
+			for _, candidate in workspace:GetPartBoundsInRadius(cap.Position, searchRadius, params) do
+				local info = getSegmentInfo(candidate)
+				if info and isMatchingCap(cap, info.diameter, candidate.Color, candidate.Material) then
+					local tolerance = joinTolerance(info, info)
+					local d1 = (info.e1 - cap.Position).Magnitude
+					local d2 = (info.e2 - cap.Position).Magnitude
+					if math.min(d1, d2) <= tolerance then
+						return discoverRope(candidate)
+					end
+				end
+			end
+		end
 		return nil
 	end
 
@@ -306,14 +350,38 @@ local function discoverRope(seedPart: Instance): Rope?
 		diameterSum += infoByPart[edges[eid].part].diameter
 	end
 	local seedPartTyped = seedInfo.part
+	local diameter = diameterSum / #chainEdges
+
+	-- Sphere endcaps: matching Ball parts centered on the chain's end vertices.
+	local caps: { BasePart } = {}
+	local capSeen: { [BasePart]: boolean } = {}
+	local endVids = if path[1] ~= path[#path] then { path[1], path[#path] } else { path[1] }
+	for _, vid in endVids do
+		local position = vertices[vid].position
+		local tolerance = math.max(kJoinToleranceFloor, diameter * kJoinToleranceFraction)
+		local params = OverlapParams.new()
+		params.MaxParts = 1000
+		for _, candidate in workspace:GetPartBoundsInRadius(position, tolerance + 0.05, params) do
+			if
+				not capSeen[candidate]
+				and isMatchingCap(candidate, diameter, seedPartTyped.Color, seedPartTyped.Material)
+				and (candidate.Position - position).Magnitude <= tolerance
+			then
+				capSeen[candidate] = true
+				table.insert(caps, candidate)
+				break -- one cap per end
+			end
+		end
+	end
 
 	return {
 		vertices = vertices,
 		edges = edges,
 		path = path,
 		chainEdges = chainEdges,
+		caps = caps,
 		kind = seedInfo.kind,
-		diameter = diameterSum / #chainEdges,
+		diameter = diameter,
 		color = seedPartTyped.Color,
 		material = seedPartTyped.Material,
 		materialVariant = seedPartTyped.MaterialVariant,

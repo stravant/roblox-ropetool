@@ -24,6 +24,7 @@ local function makeSettings(): Settings.RopeToolSettings
 		SegmentType = "Cylinder",
 		Sag = 2,
 		Diameter = 0.3,
+		HaveEndcaps = false,
 		RopeColor = { 0.412, 0.251, 0.157 },
 		RopeMaterial = "Fabric",
 		RopeMaterialVariant = "",
@@ -69,6 +70,19 @@ return function(t: TestTypes.TestContext)
 		local found: { BasePart } = {}
 		for _, p in workspace:GetPartBoundsInRadius(kRegionCenter, 200, params) do
 			if p:IsA("BasePart") and p.Name == "RopeSegment" then
+				table.insert(found, p)
+			end
+		end
+		return found
+	end
+
+	-- All still-parented rope endcap parts in the test region.
+	local function findCapParts(): { BasePart }
+		local params = OverlapParams.new()
+		params.MaxParts = 10000
+		local found: { BasePart } = {}
+		for _, p in workspace:GetPartBoundsInRadius(kRegionCenter, 200, params) do
+			if p:IsA("BasePart") and p.Name == "RopeEndcap" then
 				table.insert(found, p)
 			end
 		end
@@ -255,6 +269,51 @@ return function(t: TestTypes.TestContext)
 			t.expect(session.HasSelection()).toBeTruthy()
 			t.expect(session.GetSelectedInfo().Segments).toBe(10)
 			t.expect(session.GetSelectedInfo().SegmentType).toBe("Cylinder")
+		end)
+	end)
+
+	t.test("endcaps: cylinder ropes get sphere caps, discoverable and toggleable", function()
+		withSession(function(session, settings)
+			settings.HaveEndcaps = true
+			local parts = addStandardRope(session, settings)
+			t.expect(#parts).toBe(10)
+			local caps = findCapParts()
+			t.expect(#caps).toBe(2)
+			-- One cap sits exactly on each rope end.
+			local capOnA = nearV(caps[1].Position, kPointA, 0.001) or nearV(caps[2].Position, kPointA, 0.001)
+			local capOnB = nearV(caps[1].Position, kPointB, 0.001) or nearV(caps[2].Position, kPointB, 0.001)
+			t.expect(capOnA and capOnB).toBeTruthy()
+
+			-- Discovery picks the caps up -- selecting even FROM a cap works.
+			settings.Mode = "Move"
+			t.expect(session.SelectRopeFromPart(caps[1])).toBeTruthy()
+			local info = session.GetSelectedInfo()
+			t.expect(info.Segments).toBe(10)
+			t.expect(info.HaveEndcaps).toBeTruthy()
+			t.expect(#info.Caps).toBe(2)
+
+			-- Dragging an endpoint carries its cap along.
+			local target = if nearV(info.PointA, kPointA, 0.05) then "A" else "B"
+			session.StartHandleDrag(target)
+			session.ApplyHandleDrag(Vector3.new(0, 4, 0))
+			session.EndHandleDrag()
+			local movedCapFound = false
+			for _, cap in findCapParts() do
+				if nearV(cap.Position, kPointA + Vector3.new(0, 4, 0), 0.01) then
+					movedCapFound = true
+				end
+			end
+			t.expect(movedCapFound).toBeTruthy()
+
+			-- Toggling the setting off removes the caps as one undoable edit.
+			settings.HaveEndcaps = false
+			session.Update()
+			t.expect(#findCapParts()).toBe(0)
+			t.expect(session.GetSelectedInfo().HaveEndcaps).toBeFalsy()
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(#findCapParts()).toBe(2)
+			t.expect(session.GetSelectedInfo().HaveEndcaps).toBeTruthy()
 		end)
 	end)
 

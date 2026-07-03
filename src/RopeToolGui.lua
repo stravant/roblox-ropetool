@@ -16,6 +16,7 @@ local Slider = require("./PluginGui/Slider")
 local HelpGui = require("./PluginGui/HelpGui")
 local OverlayGui = require("./PluginGui/OverlayGui")
 local MaterialDropdown = require("./PluginGui/MaterialDropdown")
+local Checkbox = require("./PluginGui/Checkbox")
 local Settings = require("./Settings")
 local PluginGuiTypes = require("./PluginGui/Types")
 local RopeOverlay = require("./RopeOverlay")
@@ -253,6 +254,20 @@ local function RopePanel(props: {
 			}),
 			Help = e(HelpGui.BasicTooltip, {
 				HelpRichText = "The part shape used for each rope segment.",
+			}),
+		}),
+		Endcaps = currentType == "Cylinder" and e(HelpGui.WithHelpIcon, {
+			LayoutOrder = nextOrder(),
+			Subject = e(Checkbox, {
+				Label = "Have Endcaps",
+				Checked = props.Settings.HaveEndcaps,
+				Changed = function(checked: boolean)
+					props.Settings.HaveEndcaps = checked
+					props.UpdatedSettings()
+				end,
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "Round off the rope's two ends with sphere parts (cylinder segments have flat ends).",
 			}),
 		}),
 		Segments = e(NumberInput, {

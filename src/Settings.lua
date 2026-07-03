@@ -11,6 +11,7 @@ export type RopeToolSettings = PluginGuiTypes.PluginGuiSettings & {
 	SegmentType: string, -- "Box" | "Cylinder"
 	Sag: number,
 	Diameter: number,
+	HaveEndcaps: boolean,
 	RopeColor: { number },
 	RopeMaterial: string,
 	RopeMaterialVariant: string,
@@ -39,6 +40,7 @@ local function loadSettings(plugin: Plugin): RopeToolSettings
 		SegmentType = raw.SegmentType or "Cylinder",
 		Sag = raw.Sag or 2,
 		Diameter = raw.Diameter or 0.3,
+		HaveEndcaps = if raw.HaveEndcaps ~= nil then raw.HaveEndcaps else true,
 		RopeColor = raw.RopeColor or { 0.412, 0.251, 0.157 },
 		RopeMaterial = raw.RopeMaterial or "Fabric",
 		RopeMaterialVariant = raw.RopeMaterialVariant or "",
@@ -63,6 +65,7 @@ local function saveSettings(plugin: Plugin, settings: RopeToolSettings)
 		SegmentType = settings.SegmentType,
 		Sag = settings.Sag,
 		Diameter = settings.Diameter,
+		HaveEndcaps = settings.HaveEndcaps,
 		RopeColor = settings.RopeColor,
 		RopeMaterial = settings.RopeMaterial,
 		RopeMaterialVariant = settings.RopeMaterialVariant,

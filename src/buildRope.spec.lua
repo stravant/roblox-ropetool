@@ -191,6 +191,65 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("endcaps are built for cylinders, reused, and dropped for boxes", function()
+		withFolder(function(folder)
+			local a = kRegion
+			local b = kRegion + Vector3.new(12, 0, 0)
+			local parts, caps = buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 2,
+				Segments = 6,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				HaveEndcaps = true,
+				Parent = folder,
+			})
+			t.expect(#caps).toBe(2)
+			for _, cap in caps do
+				t.expect((cap :: Part).Shape).toBe(Enum.PartType.Ball)
+				t.expect((cap.Size - Vector3.one * 0.4).Magnitude < 0.001).toBeTruthy()
+				t.expect(cap.Parent).toBe(folder)
+			end
+			t.expect(nearV(caps[1].Position, a, 0.001)).toBeTruthy()
+			t.expect(nearV(caps[2].Position, b, 0.001)).toBeTruthy()
+
+			-- Rebuilds reuse the cap instances in place.
+			local _, caps2 = buildRope({
+				PointA = a,
+				PointB = b + Vector3.new(0, 3, 0),
+				Sag = 2,
+				Segments = 6,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				HaveEndcaps = true,
+				Parent = folder,
+				ExistingParts = parts,
+				ExistingCaps = caps,
+			})
+			t.expect(caps2[1]).toBe(caps[1])
+			t.expect(caps2[2]).toBe(caps[2])
+			t.expect(nearV(caps2[2].Position, b + Vector3.new(0, 3, 0), 0.001)).toBeTruthy()
+
+			-- Box mode drops the caps even when requested (unparented, not destroyed).
+			local _, caps3 = buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 2,
+				Segments = 6,
+				SegmentType = "Box",
+				Diameter = 0.4,
+				HaveEndcaps = true,
+				Parent = folder,
+				ExistingParts = parts,
+				ExistingCaps = caps,
+			})
+			t.expect(#caps3).toBe(0)
+			t.expect(caps[1].Parent).toBe(nil)
+			t.expect(caps[2].Parent).toBe(nil)
+		end)
+	end)
+
 	t.test("applies appearance props to new and reused parts", function()
 		withFolder(function(folder)
 			local red = Color3.new(1, 0, 0)

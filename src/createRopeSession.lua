@@ -129,6 +129,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- time; kept up to date through every rebuild.
 	type SelectedRope = {
 		parts: { BasePart }, -- chain order
+		caps: { BasePart }, -- sphere endcaps (empty when none)
 		polyline: { Vector3 }, -- chain vertex positions, A to B
 		pointA: Vector3,
 		pointB: Vector3,
@@ -136,6 +137,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		segments: number,
 		segmentType: string, -- "Box" | "Cylinder"
 		diameter: number,
+		haveEndcaps: boolean,
 		color: Color3,
 		material: Enum.Material,
 		materialVariant: string,
@@ -191,6 +193,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		currentSettings.Sag = roundTo(sel.sag, 0.01)
 		currentSettings.SegmentType = sel.segmentType
 		currentSettings.Diameter = roundTo(sel.diameter, 0.01)
+		currentSettings.HaveEndcaps = sel.haveEndcaps
 		currentSettings.RopeColor = { sel.color.R, sel.color.G, sel.color.B }
 		currentSettings.RopeMaterial = sel.material.Name
 		currentSettings.RopeMaterialVariant = sel.materialVariant
@@ -205,6 +208,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		local parent: Instance = parts[1].Parent or workspace
 		return {
 			parts = parts,
+			caps = table.clone(rope.caps),
 			polyline = polyline,
 			pointA = polyline[1],
 			pointB = polyline[#polyline],
@@ -212,6 +216,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			segments = #parts,
 			segmentType = if rope.kind == "Cylinder" then "Cylinder" else "Box",
 			diameter = rope.diameter,
+			haveEndcaps = #rope.caps > 0,
 			color = rope.color,
 			material = rope.material,
 			materialVariant = rope.materialVariant,
@@ -288,13 +293,14 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- reusing the existing parts (repositioned, not recreated) so per-frame
 	-- drag rebuilds are cheap and part identity is stable.
 	local function rebuildSelected(sel: SelectedRope)
-		sel.parts = buildRope({
+		sel.parts, sel.caps = buildRope({
 			PointA = sel.pointA,
 			PointB = sel.pointB,
 			Sag = sel.sag,
 			Segments = sel.segments,
 			SegmentType = sel.segmentType,
 			Diameter = sel.diameter,
+			HaveEndcaps = sel.haveEndcaps,
 			Parent = sel.parent,
 			Props = {
 				Color = sel.color,
@@ -302,7 +308,10 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				MaterialVariant = sel.materialVariant,
 			},
 			ExistingParts = sel.parts,
+			ExistingCaps = sel.caps,
 		})
+		-- Box mode drops the caps even when requested; reflect what was built.
+		sel.haveEndcaps = #sel.caps > 0
 		sel.polyline = ropeCurve.computePoints(sel.pointA, sel.pointB, sel.sag, sel.segments)
 	end
 
@@ -330,6 +339,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return true
 		end
 		if currentSettings.SegmentType ~= sel.segmentType then
+			return true
+		end
+		if currentSettings.HaveEndcaps ~= sel.haveEndcaps then
 			return true
 		end
 		if math.abs(currentSettings.Sag - sel.sag) > 0.005 then
@@ -367,6 +379,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		runUndoableOperation("RopeTool Edit Rope", function(): boolean
 			sel.segments = math.max(1, math.round(currentSettings.Segments))
 			sel.segmentType = currentSettings.SegmentType
+			sel.haveEndcaps = currentSettings.HaveEndcaps
 			sel.sag = currentSettings.Sag
 			sel.diameter = math.max(0.01, currentSettings.Diameter)
 			local c = currentSettings.RopeColor
@@ -540,6 +553,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				Segments = math.max(1, math.round(currentSettings.Segments)),
 				SegmentType = currentSettings.SegmentType,
 				Diameter = math.max(0.01, currentSettings.Diameter),
+				HaveEndcaps = currentSettings.HaveEndcaps,
 				Parent = folder,
 				Props = getRopeProps(),
 			})
@@ -630,6 +644,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				mHoverParts = {}
 				for _, part in RopeGraph.ropeParts(rope) do
 					mHoverParts[part] = true
+				end
+				for _, cap in rope.caps do
+					mHoverParts[cap] = true
 				end
 				-- clearHover (via mode changes etc.) resets the key; restore it
 				-- so this frame's pick sticks.
@@ -836,7 +853,16 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		local direction = mouseRay.Direction.Unit
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = if sel then (table.clone(sel.parts) :: any) else {}
+		local exclude: { Instance } = {}
+		if sel then
+			for _, part in sel.parts do
+				table.insert(exclude, part)
+			end
+			for _, cap in sel.caps do
+				table.insert(exclude, cap)
+			end
+		end
+		params.FilterDescendantsInstances = exclude
 		local result = workspace:Raycast(mouseRay.Origin, direction * 10000, params)
 		if result and result.Instance:IsA("BasePart") then
 			local snapped = snapAddPosition(result.Position, result.Instance :: BasePart, UserInputService:GetMouseLocation())
@@ -1025,6 +1051,14 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 		if not anchor then
+			for _, cap in sel.caps do
+				if cap.Parent then
+					anchor = cap
+					break
+				end
+			end
+		end
+		if not anchor then
 			mSelected = nil
 			return
 		end
@@ -1162,7 +1196,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		Segments: number,
 		SegmentType: string,
 		Diameter: number,
+		HaveEndcaps: boolean,
 		Parts: { BasePart },
+		Caps: { BasePart },
 	}?
 		local sel = mSelected
 		if not sel then
@@ -1175,7 +1211,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			Segments = sel.segments,
 			SegmentType = sel.segmentType,
 			Diameter = sel.diameter,
+			HaveEndcaps = sel.haveEndcaps,
 			Parts = table.clone(sel.parts),
+			Caps = table.clone(sel.caps),
 		}
 	end
 	session.GetAddFirstPoint = function(): Vector3?

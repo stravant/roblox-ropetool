@@ -47,6 +47,7 @@ Three-layer design:
      endpoint/sag draggers, add-point snapping, undo/redo via ChangeHistoryService recordings.
    - `src/RopeGraph.lua` — Implicit discovery: vertices + edges walked from a seed part via
      endpoint adjacency and a property-overlap heuristic (shape / cross-section / color / material).
+     Sphere endcaps on the chain's end vertices are discovered too (and work as seeds).
    - `src/buildRope.lua` — Builds/updates the segment parts along the curve, reusing parts in
      place during drags.
    - `src/ropeCurve.lua` — The parabolic sag curve: point generation and sag estimation (inverse).
@@ -56,7 +57,7 @@ Three-layer design:
 
 2. **Settings layer** — Persistent configuration via `plugin:GetSetting`/`SetSetting`.
    - `src/Settings.lua` — Settings key `"ropeToolState"`. Stores mode, segments, segment type,
-     sag, diameter, rope color/material, recent colors/materials.
+     sag, diameter, endcaps, rope color/material, recent colors/materials.
 
 3. **UI layer** — React components.
    - `src/RopeToolGui.lua` — Main settings panel: mode chips, rope parameters, and the
