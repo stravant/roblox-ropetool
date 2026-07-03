@@ -459,6 +459,48 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("add points and grab drags snap to the endpoints of other ropes", function()
+		withSession(function(session, settings)
+			-- First rope, A..B.
+			addStandardRope(session, settings)
+
+			-- A second rope in a different color AND material, so the two stay
+			-- separate ropes (enough property mismatches to not chain).
+			settings.RopeColor = { 1, 0, 0 }
+			settings.RopeMaterial = "Metal"
+
+			-- Add: clicking near the first rope's endpoint snaps onto it
+			-- exactly, even over empty space (no hit part).
+			settings.Mode = "Add"
+			session.AddClickAt(kPointB + Vector3.new(0.3, 0.2, 0))
+			t.expect(nearV(session.GetAddFirstPoint(), kPointB, 0.001)).toBeTruthy()
+			local pointC = kRegionCenter + Vector3.new(18, 4, 6)
+			session.AddClickAt(pointC)
+			t.expect(#findRopeParts()).toBe(20)
+
+			-- Grab drag: dragging the second rope's far end near the first
+			-- rope's A endpoint snaps onto it exactly (the dragged rope itself
+			-- is excluded from the snap candidates).
+			settings.Mode = "Move"
+			local rope2Part: BasePart? = nil
+			for _, p in findRopeParts() do
+				if (p.Position - pointC).Magnitude < 3 then
+					rope2Part = p
+					break
+				end
+			end
+			assert(rope2Part)
+			t.expect(session.SelectRopeFromPart(rope2Part)).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(10)
+			local info = session.GetSelectedInfo()
+			local target = if nearV(info.PointA, pointC, 0.05) then "A" else "B"
+			session.StartHandleDrag(target)
+			session.ApplyHandleDragTo(kPointA + Vector3.new(0.2, 0.25, 0), nil)
+			session.EndHandleDrag()
+			t.expect(selectionSpans(session, kPointB, kPointA, 0.001)).toBeTruthy()
+		end)
+	end)
+
 	t.test("add points snap to the corners of clicked parts", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

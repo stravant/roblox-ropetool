@@ -441,10 +441,23 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- closest-mesh-edge finder (borrowed from GapFill).
 	-- cursorScreen is the true cursor position when known; tests that drive by
 	-- world position fall back to projecting worldPos.
-	local function snapAddPosition(worldPos: Vector3, part: BasePart?, cursorScreen: Vector2?): (Vector3, boolean)
-		if not part then
-			return worldPos, false
+	-- World-space query radius that comfortably covers the screen-space snap
+	-- radius at the point's depth.
+	local function snapQueryRadius(worldPos: Vector3): number
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return 2
 		end
+		local distance = (worldPos - camera.CFrame.Position).Magnitude
+		return math.clamp(distance * 0.06, 1, 30)
+	end
+
+	local function snapAddPosition(
+		worldPos: Vector3,
+		part: BasePart?,
+		cursorScreen: Vector2?,
+		excludeParts: { [BasePart]: boolean }?
+	): (Vector3, boolean)
 		local camera = workspace.CurrentCamera
 		local cursor = cursorScreen
 		if not cursor and camera then
@@ -454,7 +467,28 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 
-		if part:IsA("MeshPart") or part:IsA("UnionOperation") then
+		-- Tier 1: one pool of point candidates by screen distance -- the
+		-- endpoints of nearby ropes (so ropes can chain onto each other
+		-- exactly) competing with the hit part's corners.
+		local bestPos: Vector3? = nil
+		local bestDist = kSnapPixels
+		local function offerPoint(candidate: Vector3)
+			local dist = screenDistance(cursor, candidate)
+			if dist < bestDist then
+				bestDist = dist
+				bestPos = candidate
+			end
+		end
+
+		for _, endpoint in RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts) do
+			offerPoint(endpoint)
+		end
+
+		-- MeshParts/Unions have no analytic corners; their nearest mesh edge
+		-- (found blackbox-style, borrowed from GapFill) contributes its two
+		-- ends to the pool, and serves as the along-edge fallback below.
+		local meshEdge: any = nil
+		if part and (part:IsA("MeshPart") or part:IsA("UnionOperation")) then
 			local viewDirection = if camera then camera.CFrame.LookVector else Vector3.zAxis
 			-- blackboxFindClosestMeshEdge wants a RaycastResult; synthesize the
 			-- two fields it reads (Instance, Position, Normal) from what we have.
@@ -465,63 +499,48 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				return Geometry.blackboxFindClosestMeshEdge(fakeHit :: any, viewDirection)
 			end)
 			if ok and edge then
-				-- Prefer an endpoint of the edge, else the closest point along it.
-				local bestPos: Vector3? = nil
-				local bestDist = kSnapPixels
-				for _, corner in { edge.a, edge.b } do
-					local dist = screenDistance(cursor, corner)
-					if dist < bestDist then
-						bestDist = dist
-						bestPos = corner
-					end
-				end
-				if bestPos then
-					return bestPos, true
-				end
-				local seg = edge.b - edge.a
-				local lenSq = seg:Dot(seg)
-				local t = if lenSq < 0.001 then 0 else math.clamp((worldPos - edge.a):Dot(seg) / lenSq, 0, 1)
-				local onEdge = edge.a + seg * t
-				if screenDistance(cursor, onEdge) < kSnapPixels then
-					return onEdge, true
-				end
-			end
-			return worldPos, false
-		end
-
-		local ok, geom = pcall(function()
-			return Geometry.getGeometry(part, worldPos)
-		end)
-		if not ok or not geom then
-			return worldPos, false
-		end
-
-		-- Tier 1: part corner vertices by screen distance.
-		local bestPos: Vector3? = nil
-		local bestDist = kSnapPixels
-		for _, vertex in geom.vertices do
-			local dist = screenDistance(cursor, vertex.position)
-			if dist < bestDist then
-				bestDist = dist
-				bestPos = vertex.position
+				meshEdge = edge
+				offerPoint(edge.a)
+				offerPoint(edge.b)
 			end
 		end
+
+		local geom: any = nil
+		if part and not meshEdge and not (part:IsA("MeshPart") or part:IsA("UnionOperation")) then
+			local ok, result = pcall(function()
+				return Geometry.getGeometry(part :: BasePart, worldPos)
+			end)
+			if ok and result then
+				geom = result
+				for _, vertex in geom.vertices do
+					offerPoint(vertex.position)
+				end
+			end
+		end
+
 		if bestPos then
 			return bestPos, true
 		end
 
-		-- Tier 2: closest point on the nearest edge.
-		local bestEdgePos: Vector3? = nil
-		local bestEdgeDist = kSnapPixels
-		for _, edge in geom.edges do
-			local seg = edge.b - edge.a
+		-- Tier 2: closest point along the hit part's nearest edge.
+		local function offerEdge(a: Vector3, b: Vector3, bestEdgePos: Vector3?, bestEdgeDist: number): (Vector3?, number)
+			local seg = b - a
 			local lenSq = seg:Dot(seg)
-			local t = if lenSq < 0.001 then 0 else math.clamp((worldPos - edge.a):Dot(seg) / lenSq, 0, 1)
-			local onEdge = edge.a + seg * t
+			local t = if lenSq < 0.001 then 0 else math.clamp((worldPos - a):Dot(seg) / lenSq, 0, 1)
+			local onEdge = a + seg * t
 			local dist = screenDistance(cursor, onEdge)
 			if dist < bestEdgeDist then
-				bestEdgeDist = dist
-				bestEdgePos = onEdge
+				return onEdge, dist
+			end
+			return bestEdgePos, bestEdgeDist
+		end
+		local bestEdgePos: Vector3? = nil
+		local bestEdgeDist = kSnapPixels
+		if meshEdge then
+			bestEdgePos, bestEdgeDist = offerEdge(meshEdge.a, meshEdge.b, bestEdgePos, bestEdgeDist)
+		elseif geom then
+			for _, edge in geom.edges do
+				bestEdgePos, bestEdgeDist = offerEdge(edge.a, edge.b, bestEdgePos, bestEdgeDist)
 			end
 		end
 		if bestEdgePos then
@@ -726,7 +745,11 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			if result and result.Instance:IsA("BasePart") then
 				newPoint, newSnapped = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen)
 			else
-				newPoint = addProjectedPos(screenPosOverride)
+				-- Even over empty space, a nearby rope endpoint can snap.
+				local projected = addProjectedPos(screenPosOverride)
+				if projected then
+					newPoint, newSnapped = snapAddPosition(projected, nil, cursorScreen)
+				end
 			end
 			if newPoint ~= mAddHoverPoint or newSnapped ~= mAddHoverSnapped then
 				mAddHoverPoint = newPoint
@@ -806,7 +829,11 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			if result and result.Instance:IsA("BasePart") then
 				point = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen)
 			else
-				point = addProjectedPos()
+				-- Even over empty space, a nearby rope endpoint can snap.
+				local projected = addProjectedPos()
+				if projected then
+					point = snapAddPosition(projected, nil, cursorScreen)
+				end
 			end
 			if point then
 				handleAddPoint(point)
@@ -893,29 +920,45 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		changeSignal:Fire()
 	end
 
+	-- The selected rope's parts (segments + caps) as a set, for excluding it
+	-- from raycasts and snap candidates while it is being edited.
+	local function selectionPartSet(): { [BasePart]: boolean }?
+		local sel = mSelected
+		if not sel then
+			return nil
+		end
+		local set: { [BasePart]: boolean } = {}
+		for _, part in sel.parts do
+			set[part] = true
+		end
+		for _, cap in sel.caps do
+			set[cap] = true
+		end
+		return set
+	end
+
 	-- Resolve the cursor ray to a new endpoint position during a grab drag,
 	-- with the same snapping as the Add tool: raycast the scene (excluding the
 	-- rope's own parts, which follow the cursor), snap to the hit part's
-	-- corners/edges, or fall back to a horizontal plane through the endpoint's
-	-- pre-drag position when over empty space.
+	-- corners/edges and nearby rope endpoints, or fall back to a horizontal
+	-- plane through the endpoint's pre-drag position when over empty space
+	-- (still snapping to rope endpoints there).
 	local function resolveEndpointDragTarget(mouseRay: Ray): Vector3?
-		local sel = mSelected
 		local direction = mouseRay.Direction.Unit
+		local excludeSet = selectionPartSet()
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		local exclude: { Instance } = {}
-		if sel then
-			for _, part in sel.parts do
+		if excludeSet then
+			for part in excludeSet do
 				table.insert(exclude, part)
-			end
-			for _, cap in sel.caps do
-				table.insert(exclude, cap)
 			end
 		end
 		params.FilterDescendantsInstances = exclude
+		local cursorScreen = UserInputService:GetMouseLocation()
 		local result = workspace:Raycast(mouseRay.Origin, direction * 10000, params)
 		if result and result.Instance:IsA("BasePart") then
-			local snapped = snapAddPosition(result.Position, result.Instance :: BasePart, UserInputService:GetMouseLocation())
+			local snapped = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen, excludeSet)
 			return snapped
 		end
 		local planePoint = if mDragTarget == "A" then mDragStartA else mDragStartB
@@ -930,7 +973,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		if t <= 0 then
 			return nil
 		end
-		return mouseRay.Origin + direction * t
+		local planePos = mouseRay.Origin + direction * t
+		local snapped = snapAddPosition(planePos, nil, cursorScreen, excludeSet)
+		return snapped
 	end
 
 	local function endDrag()
@@ -1310,7 +1355,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Drive a grab drag (the endpoint sphere) to a world position, with the
 	-- same snapping as Add. Pass hitPart when the position lands on geometry.
 	session.ApplyHandleDragTo = function(worldPos: Vector3, hitPart: BasePart?)
-		local target = snapAddPosition(worldPos, hitPart, nil)
+		local target = snapAddPosition(worldPos, hitPart, nil, selectionPartSet())
 		applyDragTargetPosition(target)
 	end
 	session.EndHandleDrag = function()

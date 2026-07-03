@@ -388,6 +388,55 @@ local function discoverRope(seedPart: Instance): Rope?
 	}
 end
 
+-- Rope endpoints (chain ends) near a position, for point snapping: the
+-- endpoints of plausible segments that no other matching segment continues.
+-- One bounds query suffices: any segment sharing an endpoint that lies inside
+-- the query sphere necessarily has bounds touching the sphere, so it is in
+-- the collection and chain-endness can be decided in memory.
+-- excludeParts (e.g. the rope being dragged) contribute neither endpoints nor
+-- continuations.
+local function findRopeEndpointsNear(
+	position: Vector3,
+	radius: number,
+	excludeParts: { [BasePart]: boolean }?
+): { Vector3 }
+	local params = OverlapParams.new()
+	params.MaxParts = 1000
+	local infos: { SegmentInfo } = {}
+	for _, part in workspace:GetPartBoundsInRadius(position, radius, params) do
+		if not (excludeParts and excludeParts[part]) then
+			local info = getSegmentInfo(part)
+			if info then
+				table.insert(infos, info)
+			end
+		end
+	end
+	local endpoints: { Vector3 } = {}
+	for _, info in infos do
+		for _, endpoint in { info.e1, info.e2 } do
+			if (endpoint - position).Magnitude <= radius then
+				local continued = false
+				for _, other in infos do
+					if other.part ~= info.part and segmentsMatch(info, other) then
+						local tolerance = joinTolerance(info, other)
+						if
+							math.min((other.e1 - endpoint).Magnitude, (other.e2 - endpoint).Magnitude)
+							<= tolerance
+						then
+							continued = true
+							break
+						end
+					end
+				end
+				if not continued then
+					table.insert(endpoints, endpoint)
+				end
+			end
+		end
+	end
+	return endpoints
+end
+
 -- The chain's vertex positions in path order (the rope's polyline).
 local function ropePolyline(rope: Rope): { Vector3 }
 	local points: { Vector3 } = {}
@@ -410,6 +459,7 @@ return {
 	getSegmentInfo = getSegmentInfo,
 	segmentsMatch = segmentsMatch,
 	discoverRope = discoverRope,
+	findRopeEndpointsNear = findRopeEndpointsNear,
 	ropePolyline = ropePolyline,
 	ropeParts = ropeParts,
 }
