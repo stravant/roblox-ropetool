@@ -501,6 +501,32 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("nearby rope endpoints take priority over closer part corners", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings)
+			settings.Mode = "Add"
+			-- A block whose corner is nearer the aim point on screen than the
+			-- rope's B endpoint; corners at kPointB + (0.5, 0, 0) and (1.5, 0, 0).
+			local block = Instance.new("Part")
+			block.Size = Vector3.new(1, 1, 1)
+			block.CFrame = CFrame.new(kPointB + Vector3.new(1, -0.5, 0.5))
+			block.Anchored = true
+			block.Parent = workspace
+
+			-- Aim 0.1 from the near corner but 0.4 from the endpoint: the
+			-- endpoint is inside the priority radius (2 diameters = 0.6), so it
+			-- wins over the closer corner.
+			session.AddClickAt(kPointB + Vector3.new(0.4, 0, 0), block)
+			t.expect(nearV(session.GetAddFirstPoint(), kPointB, 0.001)).toBeTruthy()
+			session.DebugEscape()
+
+			-- Beyond the priority radius (1.4 from the endpoint) the flat
+			-- screen-distance competition applies: the far corner wins.
+			session.AddClickAt(kPointB + Vector3.new(1.4, 0, 0), block)
+			t.expect(nearV(session.GetAddFirstPoint(), kPointB + Vector3.new(1.5, 0, 0), 0.001)).toBeTruthy()
+		end)
+	end)
+
 	t.test("add points snap to the corners of clicked parts", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

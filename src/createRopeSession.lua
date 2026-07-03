@@ -452,10 +452,17 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return math.clamp(distance * 0.06, 1, 30)
 	end
 
+	-- A rope endpoint within this many diameters (of the rope being placed or
+	-- dragged) of the target point wins outright over any other snap
+	-- candidate: at that range, attaching the ropes together is almost always
+	-- the intent, even when some part corner is nearer on screen.
+	local kEndpointPriorityDiameters = 2
+
 	local function snapAddPosition(
 		worldPos: Vector3,
 		part: BasePart?,
 		cursorScreen: Vector2?,
+		ropeDiameter: number,
 		excludeParts: { [BasePart]: boolean }?
 	): (Vector3, boolean)
 		local camera = workspace.CurrentCamera
@@ -467,9 +474,27 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 
+		local endpoints = RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts)
+
+		-- Priority pass: the nearest rope endpoint within the world-space
+		-- priority radius beats everything else.
+		local priorityRadius = ropeDiameter * kEndpointPriorityDiameters
+		local bestPriority: Vector3? = nil
+		local bestPriorityDist = priorityRadius
+		for _, endpoint in endpoints do
+			local dist = (endpoint - worldPos).Magnitude
+			if dist <= bestPriorityDist then
+				bestPriorityDist = dist
+				bestPriority = endpoint
+			end
+		end
+		if bestPriority then
+			return bestPriority, true
+		end
+
 		-- Tier 1: one pool of point candidates by screen distance -- the
-		-- endpoints of nearby ropes (so ropes can chain onto each other
-		-- exactly) competing with the hit part's corners.
+		-- (farther) endpoints of nearby ropes competing with the hit part's
+		-- corners.
 		local bestPos: Vector3? = nil
 		local bestDist = kSnapPixels
 		local function offerPoint(candidate: Vector3)
@@ -480,7 +505,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 
-		for _, endpoint in RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts) do
+		for _, endpoint in endpoints do
 			offerPoint(endpoint)
 		end
 
@@ -743,12 +768,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			local newPoint: Vector3? = nil
 			local newSnapped = false
 			if result and result.Instance:IsA("BasePart") then
-				newPoint, newSnapped = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen)
+				newPoint, newSnapped =
+					snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen, currentSettings.Diameter)
 			else
 				-- Even over empty space, a nearby rope endpoint can snap.
 				local projected = addProjectedPos(screenPosOverride)
 				if projected then
-					newPoint, newSnapped = snapAddPosition(projected, nil, cursorScreen)
+					newPoint, newSnapped = snapAddPosition(projected, nil, cursorScreen, currentSettings.Diameter)
 				end
 			end
 			if newPoint ~= mAddHoverPoint or newSnapped ~= mAddHoverSnapped then
@@ -827,12 +853,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			local cursorScreen = UserInputService:GetMouseLocation()
 			local point: Vector3? = nil
 			if result and result.Instance:IsA("BasePart") then
-				point = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen)
+				point = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen, currentSettings.Diameter)
 			else
 				-- Even over empty space, a nearby rope endpoint can snap.
 				local projected = addProjectedPos()
 				if projected then
-					point = snapAddPosition(projected, nil, cursorScreen)
+					point = snapAddPosition(projected, nil, cursorScreen, currentSettings.Diameter)
 				end
 			end
 			if point then
@@ -955,10 +981,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 		params.FilterDescendantsInstances = exclude
+		local sel = mSelected
+		local dragDiameter = if sel then sel.diameter else currentSettings.Diameter
 		local cursorScreen = UserInputService:GetMouseLocation()
 		local result = workspace:Raycast(mouseRay.Origin, direction * 10000, params)
 		if result and result.Instance:IsA("BasePart") then
-			local snapped = snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen, excludeSet)
+			local snapped =
+				snapAddPosition(result.Position, result.Instance :: BasePart, cursorScreen, dragDiameter, excludeSet)
 			return snapped
 		end
 		local planePoint = if mDragTarget == "A" then mDragStartA else mDragStartB
@@ -974,7 +1003,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return nil
 		end
 		local planePos = mouseRay.Origin + direction * t
-		local snapped = snapAddPosition(planePos, nil, cursorScreen, excludeSet)
+		local snapped = snapAddPosition(planePos, nil, cursorScreen, dragDiameter, excludeSet)
 		return snapped
 	end
 
@@ -1338,7 +1367,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Drive one Add click at a world position, as if the cursor were there.
 	-- Pass hitPart when the click lands on geometry (enables corner snapping).
 	session.AddClickAt = function(worldPos: Vector3, hitPart: BasePart?)
-		local point = snapAddPosition(worldPos, hitPart, nil)
+		local point = snapAddPosition(worldPos, hitPart, nil, currentSettings.Diameter)
 		handleAddPoint(point)
 	end
 	session.ApplySettingsToSelection = function()
@@ -1355,7 +1384,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Drive a grab drag (the endpoint sphere) to a world position, with the
 	-- same snapping as Add. Pass hitPart when the position lands on geometry.
 	session.ApplyHandleDragTo = function(worldPos: Vector3, hitPart: BasePart?)
-		local target = snapAddPosition(worldPos, hitPart, nil, selectionPartSet())
+		local sel = mSelected
+		local dragDiameter = if sel then sel.diameter else currentSettings.Diameter
+		local target = snapAddPosition(worldPos, hitPart, nil, dragDiameter, selectionPartSet())
 		applyDragTargetPosition(target)
 	end
 	session.EndHandleDrag = function()
