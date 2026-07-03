@@ -1,0 +1,16 @@
+RopeTool known limitations / future work:
+
+* Joint gaps: segments meet at exact endpoints, so sharp sag angles show small
+  wedge-shaped gaps at joints. Options: slightly overlength segments, or sphere
+  parts at joints (would need discovery to skip/absorb them).
+* Add points don't snap onto existing rope endpoints, so chaining a new rope
+  off an existing one relies on eyeballing the corner snap.
+* Closed-loop rope chains are detected (walk terminates) but the extracted
+  chain may duplicate edges; loops aren't really editable yet.
+* While dragging one endpoint handle, the other two handle sets (other
+  endpoint + sag) don't re-render until the drag ends (selection sync is
+  suppressed during drags). Cosmetic.
+* Rope segments are built CanCollide = false; possibly worth a setting.
+* No F-to-focus-selection key (PolyMap has one).
+* Junctions (3+ matching segments meeting at a vertex) terminate the chain
+  walk; selecting "through" a junction isn't possible.
