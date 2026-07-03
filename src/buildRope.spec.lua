@@ -3,6 +3,7 @@
 local TestTypes = require("./TestTypes")
 local buildRope = require("./buildRope")
 local RopeGraph = require("./RopeGraph")
+local ropeCurve = require("./ropeCurve")
 
 -- Fixtures live far from the origin so they can't collide with user content
 -- (mirrors PolyMap's spec convention).
@@ -65,17 +66,21 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
-	t.test("adjacent segments share endpoints within tolerance", function()
+	t.test("adjacent segments share endpoints within the discovery join tolerance", function()
 		withFolder(function(folder)
+			local diameter = 0.3
 			local parts = buildRope({
 				PointA = kRegion,
 				PointB = kRegion + Vector3.new(16, 0, 8),
 				Sag = 3,
 				Segments = 6,
 				SegmentType = "Box",
-				Diameter = 0.3,
+				Diameter = diameter,
 				Parent = folder,
 			})
+			-- Outer-joined ends straddle the shared curve point, so they aren't
+			-- coincident -- but they must stay within RopeGraph's join tolerance
+			-- or the chain wouldn't discover.
 			for i = 1, #parts - 1 do
 				local infoA = RopeGraph.getSegmentInfo(parts[i])
 				local infoB = RopeGraph.getSegmentInfo(parts[i + 1])
@@ -86,7 +91,55 @@ return function(t: TestTypes.TestContext)
 					(infoA.e2 - infoB.e1).Magnitude,
 					(infoA.e2 - infoB.e2).Magnitude
 				)
-				t.expect(best < 0.01).toBeTruthy()
+				t.expect(best < diameter * 0.65).toBeTruthy()
+			end
+		end)
+	end)
+
+	t.test("outer join extends segments at bends but not at the rope ends", function()
+		withFolder(function(folder)
+			local a = kRegion
+			local b = kRegion + Vector3.new(20, 0, 0)
+			local points = ropeCurve.computePoints(a, b, 3, 4)
+			local parts = buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 3,
+				Segments = 4,
+				SegmentType = "Box",
+				Diameter = 0.4,
+				Parent = folder,
+			})
+			-- Every joint bends, so every segment gets extended past its chord.
+			for i = 1, 4 do
+				local chord = (points[i + 1] - points[i]).Magnitude
+				local info = RopeGraph.getSegmentInfo(parts[i])
+				assert(info)
+				t.expect(info.length > chord + 1e-4).toBeTruthy()
+			end
+			-- The rope's outer ends stay exactly on A and B (no extension there).
+			local firstInfo = RopeGraph.getSegmentInfo(parts[1])
+			local lastInfo = RopeGraph.getSegmentInfo(parts[4])
+			assert(firstInfo and lastInfo)
+			local firstDist = math.min((firstInfo.e1 - a).Magnitude, (firstInfo.e2 - a).Magnitude)
+			local lastDist = math.min((lastInfo.e1 - b).Magnitude, (lastInfo.e2 - b).Magnitude)
+			t.expect(firstDist < 0.001).toBeTruthy()
+			t.expect(lastDist < 0.001).toBeTruthy()
+
+			-- A straight rope has no bends: segments span their chords exactly.
+			local straightParts = buildRope({
+				PointA = kRegion + Vector3.new(0, 0, 30),
+				PointB = kRegion + Vector3.new(20, 0, 30),
+				Sag = 0,
+				Segments = 4,
+				SegmentType = "Box",
+				Diameter = 0.4,
+				Parent = folder,
+			})
+			for _, part in straightParts do
+				local info = RopeGraph.getSegmentInfo(part)
+				assert(info)
+				t.expect(math.abs(info.length - 5) < 1e-4).toBeTruthy()
 			end
 		end)
 	end)

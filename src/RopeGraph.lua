@@ -17,7 +17,10 @@ local kMinAspect = 1.05
 
 -- Two segments chain when their endpoints are within this fraction of the
 -- (average) segment diameter of each other, floored for very thin ropes.
-local kJoinToleranceFraction = 0.5
+-- Outer-joined segments (see buildRope) end d*sin(theta/2) apart at a bend of
+-- angle theta, so this covers bends up to ~80 degrees per joint while staying
+-- below the >= 1 diameter separation of touching parallel ropes.
+local kJoinToleranceFraction = 0.65
 local kJoinToleranceFloor = 0.1
 
 -- Segment-count cap on a single discovery walk, so a pathological scene (e.g. a
@@ -155,9 +158,14 @@ local function discoverRope(seedPart: Instance): Rope?
 	local edges: { RopeEdge } = {}
 	local infoByPart: { [BasePart]: SegmentInfo } = {}
 	local edgeIdByPart: { [BasePart]: number } = {}
+	-- How many endpoints have merged into each vertex, for position averaging.
+	local vertexCounts: { number } = {}
 
 	-- Merge a segment endpoint onto an existing vertex within tolerance, or
-	-- make a new one. Linear scan: chains are capped small.
+	-- make a new one. Linear scan: chains are capped small. Merged positions
+	-- are averaged: outer-joined segments (see buildRope) extend PAST the true
+	-- joint symmetrically, so the average of the two straddling endpoints
+	-- recovers the joint itself to second order.
 	local function resolveVertex(position: Vector3, tolerance: number): number
 		local bestId: number? = nil
 		local bestDist = tolerance
@@ -169,9 +177,13 @@ local function discoverRope(seedPart: Instance): Rope?
 			end
 		end
 		if bestId then
+			local count = vertexCounts[bestId]
+			vertices[bestId].position = (vertices[bestId].position * count + position) / (count + 1)
+			vertexCounts[bestId] = count + 1
 			return bestId
 		end
 		table.insert(vertices, { position = position, edges = {} })
+		table.insert(vertexCounts, 1)
 		return #vertices
 	end
 

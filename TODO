@@ -1,8 +1,8 @@
 RopeTool known limitations / future work:
 
-* Joint gaps: segments meet at exact endpoints, so sharp sag angles show small
-  wedge-shaped gaps at joints. Options: slightly overlength segments, or sphere
-  parts at joints (would need discovery to skip/absorb them).
+* Outer-join covers joint gaps up to ~80 degrees of bend per joint; beyond that
+  the extended endpoints drift outside the discovery join tolerance and the
+  chain splits. Extreme bends could use sphere joint parts instead.
 * Add points don't snap onto existing rope endpoints, so chaining a new rope
   off an existing one relies on eyeballing the corner snap.
 * Closed-loop rope chains are detected (walk terminates) but the extracted

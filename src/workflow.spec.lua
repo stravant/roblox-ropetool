@@ -258,6 +258,74 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("dragging a handle on a single part converts it to a 4-segment rope", function()
+		withSession(function(session, settings)
+			settings.Mode = "Move"
+			-- A lone elongated part: a 1-segment "rope".
+			local part = Instance.new("Part")
+			part.Size = Vector3.new(8, 0.5, 0.5)
+			part.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 10, 0))
+			part.Anchored = true
+			part.Parent = workspace
+			-- Checkpoint the setup so the undo below reverts only the drag, not
+			-- the part's creation.
+			ChangeHistoryService:SetWaypoint("RopeToolTestSetup")
+
+			t.expect(session.SelectRopeFromPart(part)).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(1)
+
+			-- Grabbing a handle splits it immediately so the drag has vertices
+			-- to curve, then the sag drag takes effect on the split rope.
+			session.StartHandleDrag("Sag")
+			t.expect(session.GetSelectedInfo().Segments).toBe(4)
+			session.ApplyHandleDrag(Vector3.new(0, -1.5, 0))
+			session.EndHandleDrag()
+
+			local info = session.GetSelectedInfo()
+			t.expect(info.Segments).toBe(4)
+			t.expect(near(info.Sag, 1.5, 0.05)).toBeTruthy()
+
+			-- Rediscovery from scratch agrees with the tracked selection.
+			session.Deselect()
+			t.expect(session.SelectRopeFromPart(part)).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(4)
+			t.expect(near(session.GetSelectedInfo().Sag, 1.5, 0.05)).toBeTruthy()
+
+			-- One undo reverts the whole drag, including the split.
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(1)
+		end)
+	end)
+
+	t.test("clicking near a rope selects it through selection leniency", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings)
+			settings.Mode = "Move"
+			-- A wall behind the rope, so a near-miss click lands on the wall.
+			local wall = Instance.new("Part")
+			wall.Size = Vector3.new(40, 30, 1)
+			wall.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 10, -6))
+			wall.Anchored = true
+			wall.Parent = workspace
+
+			-- Aim just above the rope's midpoint: the ray misses the thin rope,
+			-- hits the wall (itself an elongated part, i.e. an insignificant
+			-- 1-segment "rope"), and the spherecast retry finds the real rope.
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			local ropeMid = kRegionCenter + Vector3.new(0, 8, 0)
+			local aimAt = ropeMid + Vector3.new(0, 1.2, 0)
+			local screen = camera:WorldToViewportPoint(aimAt)
+			t.expect(screen.Z > 0).toBeTruthy()
+
+			t.expect(session.DebugSelectAt(Vector2.new(screen.X, screen.Y))).toBeTruthy()
+			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(10)
+		end)
+	end)
+
 	t.test("add points snap to the corners of clicked parts", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

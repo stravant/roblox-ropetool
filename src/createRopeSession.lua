@@ -51,19 +51,19 @@ local function mouseRaycast(screenPos: Vector2?): RaycastResult?
 	return workspace:Raycast(ray.Origin, ray.Direction * 10000)
 end
 
--- Raycast with a spherecast fallback for loose targeting of thin rope parts.
-local function mouseRaycastLoose(screenPos: Vector2?): RaycastResult?
-	local result = mouseRaycast(screenPos)
-	if result then
-		return result
-	end
+-- Spherecast along the cursor ray, optionally excluding already-tried parts,
+-- for loose targeting of thin rope parts.
+local function cursorSpherecast(screenPos: Vector2?, exclude: { Instance }?): RaycastResult?
 	local mouseLocation = screenPos or UserInputService:GetMouseLocation()
 	local camera = workspace.CurrentCamera
 	if not camera then
 		return nil
 	end
 	local ray = camera:ViewportPointToRay(mouseLocation.X, mouseLocation.Y)
-	return workspace:Spherecast(ray.Origin, kSpherecastRadius, ray.Direction * 1000)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = exclude or {}
+	return workspace:Spherecast(ray.Origin, kSpherecastRadius, ray.Direction * 1000, params)
 end
 
 local function createCFrameDraggerSchema(isEmptyFunc, getBoundingBoxFunc)
@@ -143,10 +143,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 
 	local mSelected: SelectedRope? = nil
 
-	-- Hover state (Move mode). The part set gates re-discovery: while the
-	-- cursor stays on the same rope no new discovery walk runs.
+	-- Hover state (Move mode). The part set and pick key gate re-discovery:
+	-- while the cursor stays on the same part (or another part of the same
+	-- rope) no new discovery walk runs. The pick key is the first thing the
+	-- cursor ray/sphere met last frame ("none" for empty space).
 	local mHoverPolyline: { Vector3 }? = nil
 	local mHoverParts: { [BasePart]: boolean } = {}
+	local mHoverPickKey: any = nil
 
 	-- Add tool state
 	local mAddFirstPoint: Vector3? = nil
@@ -222,11 +225,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end
 	end
 
-	local function selectRopeFromPart(part: Instance): boolean
-		local rope = RopeGraph.discoverRope(part)
-		if not rope then
-			return false
-		end
+	local function selectRope(rope: RopeGraph.Rope): boolean
 		local sel = deriveSelectionFromRope(rope)
 		if not sel then
 			return false
@@ -235,6 +234,49 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		syncSettingsFromSelection(sel)
 		changeSignal:Fire()
 		return true
+	end
+
+	local function selectRopeFromPart(part: Instance): boolean
+		local rope = RopeGraph.discoverRope(part)
+		if not rope then
+			return false
+		end
+		return selectRope(rope)
+	end
+
+	-- Selection leniency: the rope pick shared by hover and click. The direct
+	-- raycast hit is discovered first; when that doesn't yield a significant
+	-- rope (>= kSignificantSegments), retry with a spherecast -- excluding the
+	-- parts already tried -- to find the nearby rope the user was likely aiming
+	-- at (rope segments are thin, and often hang in front of other geometry).
+	-- The nearby candidate only wins when it has more segments than the direct
+	-- pick, so a direct hit is never hijacked by something smaller.
+	local kSignificantSegments = 3
+	local kMaxSphereRetries = 4
+	local function pickRopeAt(screenPos: Vector2?): (RopeGraph.Rope?, BasePart?)
+		local result = mouseRaycast(screenPos)
+		local directPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
+		local directRope = if directPart then RopeGraph.discoverRope(directPart) else nil
+		if directRope and #directRope.chainEdges >= kSignificantSegments then
+			return directRope, directPart
+		end
+		local directCount = if directRope then #directRope.chainEdges else 0
+		local exclude: { Instance } = if directPart then { directPart } else {}
+		for _ = 1, kMaxSphereRetries do
+			local sphereResult = cursorSpherecast(screenPos, exclude)
+			if not sphereResult then
+				break
+			end
+			if sphereResult.Instance:IsA("BasePart") then
+				local spherePart = sphereResult.Instance :: BasePart
+				local sphereRope = RopeGraph.discoverRope(spherePart)
+				if sphereRope and #sphereRope.chainEdges > directCount then
+					return sphereRope, spherePart
+				end
+			end
+			table.insert(exclude, sphereResult.Instance)
+		end
+		return directRope, directPart
 	end
 
 	----------------------------------------------------------------------
@@ -527,6 +569,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	----------------------------------------------------------------------
 
 	local function clearHover(): boolean
+		mHoverPickKey = nil
 		if mHoverPolyline ~= nil then
 			mHoverPolyline = nil
 			mHoverParts = {}
@@ -560,26 +603,40 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end
 
 		if currentSettings.Mode == "Move" then
-			local result = mouseRaycastLoose(screenPosOverride)
-			local hitPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
-			if hitPart and mHoverParts[hitPart] then
-				return -- still on the same rope
+			-- The pick key: the first thing the cursor ray (or, over empty
+			-- space, the cursor sphere) meets. Re-pick only when it changes so
+			-- hover isn't re-running discovery every frame.
+			local result = mouseRaycast(screenPosOverride)
+			local directPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
+			local key: any = directPart
+			if not key then
+				local sphereResult = cursorSpherecast(screenPosOverride, nil)
+				key = if sphereResult then sphereResult.Instance else "none"
 			end
+			if key == mHoverPickKey then
+				return
+			end
+			-- Crossing onto another part of the already-hovered rope: keep it.
+			if typeof(key) == "Instance" and mHoverParts[key :: any] then
+				mHoverPickKey = key
+				return
+			end
+			mHoverPickKey = key
+			local rope = pickRopeAt(screenPosOverride)
 			local changed = false
-			if hitPart then
-				local rope = RopeGraph.discoverRope(hitPart)
-				if rope and #rope.chainEdges >= 1 then
-					mHoverPolyline = RopeGraph.ropePolyline(rope)
-					mHoverParts = {}
-					for _, part in RopeGraph.ropeParts(rope) do
-						mHoverParts[part] = true
-					end
-					changed = true
-				else
-					changed = clearHover()
+			if rope and #rope.chainEdges >= 1 then
+				mHoverPolyline = RopeGraph.ropePolyline(rope)
+				mHoverParts = {}
+				for _, part in RopeGraph.ropeParts(rope) do
+					mHoverParts[part] = true
 				end
+				-- clearHover (via mode changes etc.) resets the key; restore it
+				-- so this frame's pick sticks.
+				mHoverPickKey = key
+				changed = true
 			else
 				changed = clearHover()
+				mHoverPickKey = key
 			end
 			if changed then
 				changeSignal:Fire()
@@ -661,13 +718,8 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end
 
 		if mode == "Move" then
-			local result = mouseRaycastLoose()
-			local hitPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
-			if hitPart then
-				if not selectRopeFromPart(hitPart) then
-					deselect()
-				end
-			else
+			local rope = pickRopeAt(nil)
+			if not rope or not selectRope(rope) then
 				deselect()
 			end
 		elseif mode == "Add" then
@@ -723,6 +775,16 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		mDragStartB = sel.pointB
 		mDragStartSag = sel.sag
 		mDragRecording = ChangeHistoryService:TryBeginRecording(kDragNames[target] or "RopeTool Edit Rope")
+		-- A single-part "rope" can't show any curve (its only vertices are its
+		-- two ends), so grabbing any of its handles converts it to 4 segments up
+		-- front -- the drag immediately gets a rope-like effect. Done inside the
+		-- recording, so one undo reverts the whole drag including the split.
+		if sel.segments == 1 then
+			sel.segments = 4
+			rebuildSelected(sel)
+			syncSettingsFromSelection(sel)
+			changeSignal:Fire()
+		end
 	end
 
 	local function applyDrag(globalTransform: CFrame)
@@ -1082,6 +1144,15 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Test hooks
 	session.DebugHoverAt = function(screenPos: Vector2)
 		updateHover(screenPos)
+	end
+	-- Run the Move-mode click's rope pick (with leniency) at a viewport position.
+	session.DebugSelectAt = function(screenPos: Vector2): boolean
+		local rope = pickRopeAt(screenPos)
+		if rope and selectRope(rope) then
+			return true
+		end
+		deselect()
+		return false
 	end
 	session.DebugEscape = function()
 		handleEscape()
