@@ -545,6 +545,35 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("the sag handle is hidden for exactly vertical ropes", function()
+		withSession(function(session, settings)
+			-- A normal horizontal-ish rope shows the sag handle.
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			t.expect(session.SelectRopeFromPart(parts[1])).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeTruthy()
+			session.Deselect()
+
+			-- A straight vertical rope has no sag direction: handle hidden.
+			settings.Mode = "Add"
+			settings.Sag = 0
+			local base = kRegionCenter + Vector3.new(0, 2, 10)
+			session.AddClickAt(base)
+			session.AddClickAt(base + Vector3.new(0, 12, 0))
+			settings.Mode = "Move"
+			local verticalPart: BasePart? = nil
+			for _, p in findRopeParts() do
+				if math.abs(p.Position.X - base.X) < 0.2 and math.abs(p.Position.Z - base.Z) < 0.2 then
+					verticalPart = p
+					break
+				end
+			end
+			assert(verticalPart)
+			t.expect(session.SelectRopeFromPart(verticalPart)).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeFalsy()
+		end)
+	end)
+
 	t.test("escape cancels a half-placed rope", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

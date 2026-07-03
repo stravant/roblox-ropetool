@@ -1021,6 +1021,17 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return currentSettings.Mode == "Move" and mSelected ~= nil
 	end
 
+	-- The sag handle is meaningless on a vertical rope: the sag offset is
+	-- itself vertical, so it would just slide points along the chord.
+	local function sagHandleVisible(): boolean
+		local sel = mSelected
+		if not sel or not handlesVisible() then
+			return false
+		end
+		local chord = sel.pointB - sel.pointA
+		return Vector3.new(chord.X, 0, chord.Z).Magnitude > 0.01
+	end
+
 	local endpointAHandles = MoveHandles.new(draggerContext, {
 		GetBoundingBox = function()
 			local sel = mSelected
@@ -1087,7 +1098,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end,
 		ApplyTransform = applyDrag,
 		EndTransform = endDrag,
-		Visible = handlesVisible,
+		Visible = sagHandleVisible,
 		HandleIds = { "PlusY", "MinusY" },
 	})
 
@@ -1394,6 +1405,11 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	end
 	session.IsHandleDragging = function(): boolean
 		return mIsDraggingHandle
+	end
+	-- Whether the sag handle is shown for the current selection (hidden for
+	-- vertical ropes, which have no meaningful sag direction).
+	session.IsSagHandleShown = function(): boolean
+		return sagHandleVisible()
 	end
 
 	-- Test hooks
