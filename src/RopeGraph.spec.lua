@@ -163,6 +163,46 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("discovery does not continue through a steep joint into a post", function()
+		withFolder(function(folder)
+			local a = kRegion
+			local b = kRegion + Vector3.new(20, 0, 0)
+			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
+			-- Deep sag: the rope leaves b climbing at ~39 degrees.
+			local parts = buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 4,
+				Segments = 8,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				Parent = folder,
+				Props = props,
+			})
+			-- A property-matched "post" standing straight up from the rope's
+			-- endpoint. The joint bend (~51 degrees) continues the rope's turn
+			-- direction (so the reversal check can't catch it), but it is far
+			-- outside any real curve's per-joint bend: the absolute cap must
+			-- keep the post out of the chain.
+			local post = Instance.new("Part")
+			post.Shape = Enum.PartType.Cylinder
+			post.Size = Vector3.new(8, 0.4, 0.4)
+			post.Color = Color3.new(1, 0, 0)
+			post.Material = Enum.Material.Fabric
+			post.Anchored = true
+			post.CFrame = CFrame.new(b + Vector3.new(0, 4, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+			post.Parent = folder
+
+			local rope = RopeGraph.discoverRope(parts[1])
+			assert(rope)
+			t.expect(#rope.chainEdges).toBe(8)
+			-- Seeding from the post finds just the post, not the rope.
+			local postRope = RopeGraph.discoverRope(post)
+			assert(postRope)
+			t.expect(#postRope.chainEdges).toBe(1)
+		end)
+	end)
+
 	t.test("parallel side-by-side ropes stay separate", function()
 		withFolder(function(folder)
 			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }

@@ -36,12 +36,16 @@ local kRequiredMatches = 3
 local kCrossSectionTolerance = 0.25 -- relative
 
 -- Chain-walk curvature limits. A joint bending more than the absolute cap
--- breaks the chain outright (a sharp V is two ropes meeting, not a curve).
--- Below that, a joint whose turn DIRECTION reverses against the consistent
--- turning of its neighbour joints (by more than the floor, so numerical
--- wobble on near-straight chains doesn't count) is the meeting point of two
--- separately-hung ropes -- e.g. the middle of a W -- and breaks the chain.
-local kMaxJointBendRadians = math.rad(60)
+-- breaks the chain outright: a sharp corner is an attachment (e.g. a rope
+-- meeting the end of a post -- the post sits 90-theta degrees off the rope's
+-- end tangent, ~50 degrees for a saggy rope) or two ropes meeting in a V,
+-- not part of one curve. Kept above the ~25-30 degree per-joint bends of a
+-- legitimately coarse deep-sag rope. Below the cap, a joint whose turn
+-- DIRECTION reverses against the consistent turning of its neighbour joints
+-- (by more than the floor, so numerical wobble on near-straight chains
+-- doesn't count) is the meeting point of two separately-hung ropes -- e.g.
+-- the middle of a W -- and breaks the chain too.
+local kMaxJointBendRadians = math.rad(45)
 local kMinReversalRadians = math.rad(10)
 
 export type SegmentInfo = {
@@ -372,7 +376,9 @@ local function discoverRope(seedPart: Instance): Rope?
 			if d1.Magnitude > 0.001 and d2.Magnitude > 0.001 then
 				d1, d2 = d1.Unit, d2.Unit
 				local axis = d1:Cross(d2)
-				local angle = math.atan(axis.Magnitude, d1:Dot(d2))
+				-- math.atan2, NOT math.atan: Luau's atan silently ignores a
+				-- second argument, which would compress every angle to <= 45.
+				local angle = math.atan2(axis.Magnitude, d1:Dot(d2))
 				bendAngles[j] = angle
 				bendRots[j] = if axis.Magnitude > 1e-6 then axis.Unit * angle else Vector3.zero
 			end
