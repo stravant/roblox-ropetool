@@ -35,11 +35,11 @@ return function(t: TestTypes.TestContext)
 		end
 	end
 
-	local function makeRope(folder: Instance, a: Vector3, b: Vector3, props: buildRope.RopeProps?): { BasePart }
+	local function makeRope(folder: Instance, a: Vector3, b: Vector3, props: buildRope.RopeProps?, sag: number?): { BasePart }
 		return buildRope({
 			PointA = a,
 			PointB = b,
-			Sag = 2,
+			Sag = sag or 2,
 			Segments = 8,
 			SegmentType = "Cylinder",
 			Diameter = 0.4,
@@ -122,17 +122,44 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
-	t.test("matching contiguous ropes chain together through a shared endpoint", function()
+	t.test("matching tangent-continuous ropes chain together through a shared endpoint", function()
 		withFolder(function(folder)
 			local a = kRegion
 			local b = kRegion + Vector3.new(20, 0, 0)
 			local c = kRegion + Vector3.new(40, 0, 0)
 			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
-			local parts1 = makeRope(folder, a, b, props)
-			makeRope(folder, b, c, props)
+			-- Straight (sag 0) so the joined chain is smooth at the meeting
+			-- point; two sagging spans would form a W and stay separate.
+			local parts1 = makeRope(folder, a, b, props, 0)
+			makeRope(folder, b, c, props, 0)
 			local rope = RopeGraph.discoverRope(parts1[1])
 			assert(rope)
 			t.expect(#rope.chainEdges).toBe(16)
+		end)
+	end)
+
+	t.test("W-shaped meeting ropes stay separate thanks to the curvature flip", function()
+		withFolder(function(folder)
+			local a = kRegion
+			local b = kRegion + Vector3.new(20, 0, 0)
+			local c = kRegion + Vector3.new(40, 0, 0)
+			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
+			-- Two identical sagging spans sharing endpoint b: a hanging curve
+			-- turns consistently upward, but at b the turn reverses -- so the
+			-- chain must break there even though every property matches.
+			local parts1 = makeRope(folder, a, b, props)
+			local parts2 = makeRope(folder, b, c, props)
+			local rope1 = RopeGraph.discoverRope(parts1[4])
+			assert(rope1)
+			t.expect(#rope1.chainEdges).toBe(8)
+			local polyline1 = RopeGraph.ropePolyline(rope1)
+			local spansAB = (nearV(polyline1[1], a, 0.05) and nearV(polyline1[#polyline1], b, 0.05))
+				or (nearV(polyline1[1], b, 0.05) and nearV(polyline1[#polyline1], a, 0.05))
+			t.expect(spansAB).toBeTruthy()
+			-- Seeding right next to the junction still trims correctly.
+			local rope2 = RopeGraph.discoverRope(parts2[1])
+			assert(rope2)
+			t.expect(#rope2.chainEdges).toBe(8)
 		end)
 	end)
 

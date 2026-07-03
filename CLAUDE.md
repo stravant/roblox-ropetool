@@ -47,7 +47,9 @@ Three-layer design:
      endpoint/sag draggers, add-point snapping, undo/redo via ChangeHistoryService recordings.
    - `src/RopeGraph.lua` — Implicit discovery: vertices + edges walked from a seed part via
      endpoint adjacency and a property-overlap heuristic (shape / cross-section / color / material).
-     Sphere endcaps on the chain's end vertices are discovered too (and work as seeds).
+     The chain is trimmed at curvature discontinuities (a joint whose bend reverses against its
+     neighbours, e.g. the middle of a W where two ropes meet, or any bend over 60°). Sphere
+     endcaps on the chain's end vertices are discovered too (and work as seeds).
    - `src/buildRope.lua` — Builds/updates the segment parts along the curve, reusing parts in
      place during drags.
    - `src/ropeCurve.lua` — The parabolic sag curve: point generation and sag estimation (inverse).

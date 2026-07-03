@@ -35,6 +35,15 @@ local kRequiredMatches = 3
 
 local kCrossSectionTolerance = 0.25 -- relative
 
+-- Chain-walk curvature limits. A joint bending more than the absolute cap
+-- breaks the chain outright (a sharp V is two ropes meeting, not a curve).
+-- Below that, a joint whose turn DIRECTION reverses against the consistent
+-- turning of its neighbour joints (by more than the floor, so numerical
+-- wobble on near-straight chains doesn't count) is the meeting point of two
+-- separately-hung ropes -- e.g. the middle of a W -- and breaks the chain.
+local kMaxJointBendRadians = math.rad(60)
+local kMinReversalRadians = math.rad(10)
+
 export type SegmentInfo = {
 	part: BasePart,
 	kind: string, -- "Cylinder" | "Block"
@@ -342,6 +351,84 @@ local function discoverRope(seedPart: Instance): Rope?
 	end
 	for _, eid in forwardEdges do
 		table.insert(chainEdges, eid)
+	end
+
+	-- Curvature-continuity trim: two separately-hung ropes whose ends meet (a
+	-- W shape) read as one degree-2 chain, but a genuine hanging curve turns
+	-- consistently in one direction while the meeting joint turns the OTHER
+	-- way. Cut the chain at such joints, keeping the run holding the seed.
+	if #chainEdges >= 2 then
+		local positions: { Vector3 } = {}
+		for _, vid in path do
+			table.insert(positions, vertices[vid].position)
+		end
+		-- The bend at each interior joint j (between chain edges j-1 and j),
+		-- as a rotation vector (turn axis * angle) plus the bare angle.
+		local bendRots: { [number]: Vector3 } = {}
+		local bendAngles: { [number]: number } = {}
+		for j = 2, #chainEdges do
+			local d1 = positions[j] - positions[j - 1]
+			local d2 = positions[j + 1] - positions[j]
+			if d1.Magnitude > 0.001 and d2.Magnitude > 0.001 then
+				d1, d2 = d1.Unit, d2.Unit
+				local axis = d1:Cross(d2)
+				local angle = math.atan(axis.Magnitude, d1:Dot(d2))
+				bendAngles[j] = angle
+				bendRots[j] = if axis.Magnitude > 1e-6 then axis.Unit * angle else Vector3.zero
+			end
+		end
+		-- breakAt[j]: cut between chain edges j-1 and j. Absolute cap, or a
+		-- turn that reverses against EVERY neighbouring joint's turn (a normal
+		-- joint always agrees with at least its far-side neighbour, so only
+		-- the meeting joint itself gets flagged).
+		local breakAt: { [number]: boolean } = {}
+		for j = 2, #chainEdges do
+			local angle = bendAngles[j]
+			if not angle then
+				continue
+			end
+			if angle > kMaxJointBendRadians then
+				breakAt[j] = true
+				continue
+			end
+			local rot = bendRots[j]
+			local reversesAll = false
+			for _, k in { j - 1, j + 1 } do
+				local otherRot = bendRots[k]
+				if otherRot then
+					if rot:Dot(otherRot) <= 0 and (rot - otherRot).Magnitude > kMinReversalRadians then
+						reversesAll = true
+					else
+						reversesAll = false
+						break
+					end
+				end
+			end
+			if reversesAll then
+				breakAt[j] = true
+			end
+		end
+		local seedIndex = table.find(chainEdges, seedEdgeId) or 1
+		local lo = seedIndex
+		while lo > 1 and not breakAt[lo] do
+			lo -= 1
+		end
+		local hi = seedIndex
+		while hi < #chainEdges and not breakAt[hi + 1] do
+			hi += 1
+		end
+		if lo > 1 or hi < #chainEdges then
+			local newEdges: { number } = {}
+			for i = lo, hi do
+				table.insert(newEdges, chainEdges[i])
+			end
+			local newPath: { number } = {}
+			for i = lo, hi + 1 do
+				table.insert(newPath, path[i])
+			end
+			chainEdges = newEdges
+			path = newPath
+		end
 	end
 
 	-- Aggregate chain properties (diameter averaged, appearance from the seed).
