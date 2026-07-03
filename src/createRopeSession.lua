@@ -134,6 +134,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		pointA: Vector3,
 		pointB: Vector3,
 		sag: number,
+		sway: number,
 		segments: number,
 		segmentType: string, -- "Box" | "Cylinder"
 		diameter: number,
@@ -166,6 +167,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	local mDragStartA: Vector3? = nil
 	local mDragStartB: Vector3? = nil
 	local mDragStartSag: number? = nil
+	local mDragStartSway: number? = nil
 	local mDragRecording: string? = nil
 	local queryMouseOverHandle: (() -> boolean)? = nil
 
@@ -191,6 +193,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	local function syncSettingsFromSelection(sel: SelectedRope)
 		currentSettings.Segments = sel.segments
 		currentSettings.Sag = roundTo(sel.sag, 0.01)
+		currentSettings.Sway = roundTo(sel.sway, 0.01)
 		currentSettings.SegmentType = sel.segmentType
 		currentSettings.Diameter = roundTo(sel.diameter, 0.01)
 		currentSettings.HaveEndcaps = sel.haveEndcaps
@@ -213,6 +216,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			pointA = polyline[1],
 			pointB = polyline[#polyline],
 			sag = ropeCurve.estimateSag(polyline),
+			sway = ropeCurve.estimateSway(polyline),
 			segments = #parts,
 			segmentType = if rope.kind == "Cylinder" then "Cylinder" else "Box",
 			diameter = rope.diameter,
@@ -306,6 +310,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			PointA = sel.pointA,
 			PointB = sel.pointB,
 			Sag = sel.sag,
+			Sway = sel.sway,
 			Segments = sel.segments,
 			SegmentType = sel.segmentType,
 			Diameter = sel.diameter,
@@ -321,7 +326,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		})
 		-- Box mode drops the caps even when requested; reflect what was built.
 		sel.haveEndcaps = #sel.caps > 0
-		sel.polyline = ropeCurve.computePoints(sel.pointA, sel.pointB, sel.sag, sel.segments)
+		sel.polyline = ropeCurve.computePoints(sel.pointA, sel.pointB, sel.sag, sel.segments, sel.sway)
 	end
 
 	-- A single-part "rope" splits into segments only once it actually needs
@@ -330,7 +335,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- wherever the sag can change, before the rebuild; the split lands inside
 	-- that edit's recording, so one undo reverts both together.
 	local function applySinglePartSplit(sel: SelectedRope)
-		if sel.segments == 1 and math.abs(sel.sag) > 1e-3 then
+		if sel.segments == 1 and (math.abs(sel.sag) > 1e-3 or math.abs(sel.sway) > 1e-3) then
 			sel.segments = 4
 		end
 	end
@@ -367,6 +372,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		if math.abs(currentSettings.Sag - sel.sag) > 0.005 then
 			return true
 		end
+		if math.abs(currentSettings.Sway - sel.sway) > 0.005 then
+			return true
+		end
 		if math.abs(currentSettings.Diameter - sel.diameter) > 0.005 then
 			return true
 		end
@@ -401,6 +409,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			sel.segmentType = currentSettings.SegmentType
 			sel.haveEndcaps = currentSettings.HaveEndcaps
 			sel.sag = currentSettings.Sag
+			sel.sway = currentSettings.Sway
 			sel.diameter = math.max(0.01, currentSettings.Diameter)
 			local c = currentSettings.RopeColor
 			sel.color = Color3.new(c[1], c[2], c[3])
@@ -618,6 +627,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				PointA = a,
 				PointB = b,
 				Sag = currentSettings.Sag,
+				Sway = currentSettings.Sway,
 				Segments = math.max(1, math.round(currentSettings.Segments)),
 				SegmentType = currentSettings.SegmentType,
 				Diameter = math.max(0.01, currentSettings.Diameter),
@@ -877,9 +887,14 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	draggerContext.SetDraggingFunction = function(_isDragging: boolean) end
 	draggerContext.DragUpdatedSignal = Signal.new()
 
-	-- The vertical position of the sag handle: the curve's midpoint.
-	local function sagHandlePosition(sel: SelectedRope): Vector3
-		return sel.pointA:Lerp(sel.pointB, 0.5) - Vector3.yAxis * sel.sag
+	-- The middle handle sits on the curve's midpoint (sag and sway applied).
+	local function midHandlePosition(sel: SelectedRope): Vector3
+		local position = sel.pointA:Lerp(sel.pointB, 0.5) - Vector3.yAxis * sel.sag
+		local swayDir = ropeCurve.swayDirection(sel.pointA, sel.pointB)
+		if swayDir then
+			position += swayDir * sel.sway
+		end
+		return position
 	end
 
 	local schema = createCFrameDraggerSchema(function(): boolean
@@ -892,9 +907,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return CFrame.identity, Vector3.zero, Vector3.zero
 	end)
 
-	local kDragNames = { A = "RopeTool Move Endpoint", B = "RopeTool Move Endpoint", Sag = "RopeTool Adjust Sag" }
+	local kDragNames = { A = "RopeTool Move Endpoint", B = "RopeTool Move Endpoint", Mid = "RopeTool Adjust Curve" }
 
 	local function startDrag(target: string)
+		-- "Sag" is accepted as a legacy alias for the middle handle.
+		if target == "Sag" then
+			target = "Mid"
+		end
 		local sel = mSelected
 		if not sel then
 			return
@@ -904,6 +923,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		mDragStartA = sel.pointA
 		mDragStartB = sel.pointB
 		mDragStartSag = sel.sag
+		mDragStartSway = sel.sway
 		mDragRecording = ChangeHistoryService:TryBeginRecording(kDragNames[target] or "RopeTool Edit Rope")
 	end
 
@@ -917,9 +937,15 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			sel.pointA = mDragStartA + delta
 		elseif mDragTarget == "B" and mDragStartB then
 			sel.pointB = mDragStartB + delta
-		elseif mDragTarget == "Sag" and mDragStartSag then
-			-- Dragging the middle handle down increases the sag.
+		elseif mDragTarget == "Mid" and mDragStartSag then
+			-- The middle handle cluster: its vertical pair adjusts sag (down =
+			-- more sag), its horizontal pair adjusts sway. MoveHandles
+			-- constrains each drag to one axis, so only one actually changes.
 			sel.sag = mDragStartSag - delta.Y
+			local swayDir = ropeCurve.swayDirection(mDragStartA or sel.pointA, mDragStartB or sel.pointB)
+			if swayDir and mDragStartSway then
+				sel.sway = mDragStartSway + delta:Dot(swayDir)
+			end
 		end
 		applySinglePartSplit(sel)
 		rebuildSelected(sel)
@@ -1021,15 +1047,14 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return currentSettings.Mode == "Move" and mSelected ~= nil
 	end
 
-	-- The sag handle is meaningless on a vertical rope: the sag offset is
-	-- itself vertical, so it would just slide points along the chord.
-	local function sagHandleVisible(): boolean
+	-- The middle (sag/sway) handles are meaningless on a vertical rope: both
+	-- offsets are relative to a horizontal chord direction it doesn't have.
+	local function midHandleVisible(): boolean
 		local sel = mSelected
 		if not sel or not handlesVisible() then
 			return false
 		end
-		local chord = sel.pointB - sel.pointA
-		return Vector3.new(chord.X, 0, chord.Z).Magnitude > 0.01
+		return ropeCurve.swayDirection(sel.pointA, sel.pointB) ~= nil
 	end
 
 	local endpointAHandles = MoveHandles.new(draggerContext, {
@@ -1088,18 +1113,30 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		Visible = handlesVisible,
 	})
 
-	local sagHandles = MoveHandles.new(draggerContext, {
+	-- The middle handle cluster: the vertical pair adjusts sag, the horizontal
+	-- pair (aligned perpendicular to the chord via the oriented bounding box)
+	-- adjusts sway.
+	local midHandles = MoveHandles.new(draggerContext, {
 		GetBoundingBox = function()
 			local sel = mSelected
-			return CFrame.new(if sel then sagHandlePosition(sel) else Vector3.zero), Vector3.zero, Vector3.zero
+			if not sel then
+				return CFrame.identity, Vector3.zero, Vector3.zero
+			end
+			local position = midHandlePosition(sel)
+			local swayDir = ropeCurve.swayDirection(sel.pointA, sel.pointB)
+			if not swayDir then
+				return CFrame.new(position), Vector3.zero, Vector3.zero
+			end
+			local frame = CFrame.fromMatrix(position, swayDir, Vector3.yAxis, swayDir:Cross(Vector3.yAxis))
+			return frame, Vector3.zero, Vector3.zero
 		end,
 		StartTransform = function()
-			startDrag("Sag")
+			startDrag("Mid")
 		end,
 		ApplyTransform = applyDrag,
 		EndTransform = endDrag,
-		Visible = sagHandleVisible,
-		HandleIds = { "PlusY", "MinusY" },
+		Visible = midHandleVisible,
+		HandleIds = { "PlusY", "MinusY", "PlusX", "MinusX" },
 	})
 
 	-- Report whether the cursor is over any handle, so surface hover hides
@@ -1111,7 +1148,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		local ray = draggerContext:getMouseRay()
 		return (endpointAHandles:hitTest(ray, false)) ~= nil
 			or (endpointBHandles:hitTest(ray, false)) ~= nil
-			or (sagHandles:hitTest(ray, false)) ~= nil
+			or (midHandles:hitTest(ray, false)) ~= nil
 			or (endpointAGrab:hitTest(ray, false)) ~= nil
 			or (endpointBGrab:hitTest(ray, false)) ~= nil
 	end
@@ -1126,7 +1163,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			HandlesList = {
 				endpointAHandles,
 				endpointBHandles,
-				sagHandles,
+				midHandles,
 				endpointAGrab,
 				endpointBGrab,
 			},
@@ -1328,6 +1365,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		PointA: Vector3,
 		PointB: Vector3,
 		Sag: number,
+		Sway: number,
 		Segments: number,
 		SegmentType: string,
 		Diameter: number,
@@ -1343,6 +1381,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			PointA = sel.pointA,
 			PointB = sel.pointB,
 			Sag = sel.sag,
+			Sway = sel.sway,
 			Segments = sel.segments,
 			SegmentType = sel.segmentType,
 			Diameter = sel.diameter,
@@ -1365,7 +1404,13 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		if not a or not b or (b - a).Magnitude < 0.01 then
 			return nil
 		end
-		return ropeCurve.computePoints(a, b, currentSettings.Sag, math.max(1, math.round(currentSettings.Segments)))
+		return ropeCurve.computePoints(
+			a,
+			b,
+			currentSettings.Sag,
+			math.max(1, math.round(currentSettings.Segments)),
+			currentSettings.Sway
+		)
 	end
 
 	-- Actions / programmatic drivers (used by tests and scriptability)
@@ -1406,10 +1451,11 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	session.IsHandleDragging = function(): boolean
 		return mIsDraggingHandle
 	end
-	-- Whether the sag handle is shown for the current selection (hidden for
-	-- vertical ropes, which have no meaningful sag direction).
+	-- Whether the middle (sag/sway) handles are shown for the current
+	-- selection (hidden for vertical ropes, which have no meaningful sag or
+	-- sway direction).
 	session.IsSagHandleShown = function(): boolean
-		return sagHandleVisible()
+		return midHandleVisible()
 	end
 
 	-- Test hooks

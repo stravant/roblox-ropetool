@@ -12,6 +12,8 @@ export type BuildRopeParams = {
 	PointA: Vector3,
 	PointB: Vector3,
 	Sag: number,
+	-- Horizontal bow perpendicular to the chord at the rope's middle.
+	Sway: number?,
 	Segments: number,
 	SegmentType: string, -- "Box" | "Cylinder"
 	Diameter: number,
@@ -60,7 +62,7 @@ end
 -- points with the given sag. Returns the parts in chain order, plus the endcap
 -- parts (empty unless HaveEndcaps and Cylinder mode).
 local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
-	local points = ropeCurve.computePoints(params.PointA, params.PointB, params.Sag, params.Segments)
+	local points = ropeCurve.computePoints(params.PointA, params.PointB, params.Sag, params.Segments, params.Sway)
 	local existingParts = params.ExistingParts
 	local props = params.Props
 	local shape = if params.SegmentType == "Cylinder" then Enum.PartType.Cylinder else Enum.PartType.Block

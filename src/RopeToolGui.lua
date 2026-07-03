@@ -313,6 +313,22 @@ local function RopePanel(props: {
 				HelpRichText = "How far the middle of the rope hangs below the straight line between its endpoints. Negative values arch upward.",
 			}),
 		}),
+		Sway = e(HelpGui.WithHelpIcon, {
+			LayoutOrder = nextOrder(),
+			Subject = e(NumberInput, {
+				Label = "Sway",
+				Value = props.Settings.Sway,
+				Unit = " studs",
+				ValueEntered = function(newValue: number)
+					props.Settings.Sway = newValue
+					props.UpdatedSettings()
+					return newValue
+				end,
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "How far the middle of the rope bows sideways, perpendicular to the line between its endpoints. The sign picks the side.",
+			}),
+		}),
 	})
 end
 

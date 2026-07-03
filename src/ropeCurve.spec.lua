@@ -46,6 +46,25 @@ return function(t: TestTypes.TestContext)
 		end
 	end)
 
+	t.test("estimateSway inverts computePoints without disturbing the sag", function()
+		local a = Vector3.new(0, 10, 0)
+		local b = Vector3.new(24, 16, -8)
+		for _, sway in { 0, 2, -3 } do
+			local points = ropeCurve.computePoints(a, b, 3, 10, sway)
+			t.expect(nearV(points[1], a, 1e-4)).toBeTruthy()
+			t.expect(nearV(points[11], b, 1e-4)).toBeTruthy()
+			t.expect(near(ropeCurve.estimateSag(points), 3, 0.01)).toBeTruthy()
+			t.expect(near(ropeCurve.estimateSway(points), sway, 0.01)).toBeTruthy()
+		end
+	end)
+
+	t.test("estimateSway returns 0 for vertical chords", function()
+		local a = Vector3.new(0, 0, 0)
+		local b = Vector3.new(0, 12, 0)
+		local points = ropeCurve.computePoints(a, b, 0, 6)
+		t.expect(ropeCurve.estimateSway(points)).toBe(0)
+	end)
+
 	t.test("estimateSag returns 0 for degenerate polylines", function()
 		t.expect(ropeCurve.estimateSag({})).toBe(0)
 		t.expect(ropeCurve.estimateSag({ Vector3.zero, Vector3.one })).toBe(0)

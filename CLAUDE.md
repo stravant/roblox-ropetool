@@ -16,8 +16,9 @@ Modes:
   the Geometry package's `blackboxFindClosestMeshEdge`) to build a sagging rope between them.
 - **Move** — hover/click to select a rope (discovered by walking matching adjacent parts), then
   drag its endpoints (axis arrows, or the endpoint sphere for a free drag with Add-style
-  snapping) or the vertical-only middle handle (sag). Panel edits (segments, type, diameter,
-  sag, color, material) apply to the selected rope.
+  snapping) or the middle handle cluster (vertical pair = sag, horizontal pair perpendicular to
+  the chord = sway). Panel edits (segments, type, diameter, sag, sway, color, material) apply to
+  the selected rope.
 
 ## Build Commands
 
@@ -52,14 +53,15 @@ Three-layer design:
      endcaps on the chain's end vertices are discovered too (and work as seeds).
    - `src/buildRope.lua` — Builds/updates the segment parts along the curve, reusing parts in
      place during drags.
-   - `src/ropeCurve.lua` — The parabolic sag curve: point generation and sag estimation (inverse).
+   - `src/ropeCurve.lua` — The parabolic curve: point generation and sag/sway estimation
+     (inverse). Sag droops vertically; sway bows horizontally perpendicular to the chord.
    - `src/Dragger/` — MoveHandles (with optional axis filter for the vertical-only sag handle)
      and GrabPointHandle (the freely-draggable endpoint sphere with Add-style snapping), built
      on DraggerFramework.
 
 2. **Settings layer** — Persistent configuration via `plugin:GetSetting`/`SetSetting`.
    - `src/Settings.lua` — Settings key `"ropeToolState"`. Stores mode, segments, segment type,
-     sag, diameter, endcaps, rope color/material, recent colors/materials.
+     sag, sway, diameter, endcaps, rope color/material, recent colors/materials.
 
 3. **UI layer** — React components.
    - `src/RopeToolGui.lua` — Main settings panel: mode chips, rope parameters, and the

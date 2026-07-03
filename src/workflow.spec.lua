@@ -23,6 +23,7 @@ local function makeSettings(): Settings.RopeToolSettings
 		Segments = 10,
 		SegmentType = "Cylinder",
 		Sag = 2,
+		Sway = 0,
 		Diameter = 0.3,
 		HaveEndcaps = false,
 		RopeColor = { 0.412, 0.251, 0.157 },
@@ -236,6 +237,43 @@ return function(t: TestTypes.TestContext)
 			settle()
 			t.expect(session.HasSelection()).toBeTruthy()
 			t.expect(near(session.GetSelectedInfo().Sag, startSag, 0.05)).toBeTruthy()
+		end)
+	end)
+
+	t.test("workflow: adjust sway with the middle handle, then undo", function()
+		withSession(function(session, settings)
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			t.expect(session.SelectRopeFromPart(parts[5])).toBeTruthy()
+			t.expect(near(session.GetSelectedInfo().Sway, 0, 0.05)).toBeTruthy()
+
+			-- The chord runs along X, so the sway axis is Z (sign depends on
+			-- the discovered endpoint order); a pure sideways drag on the
+			-- middle handle bows the rope without touching the sag.
+			session.StartHandleDrag("Mid")
+			session.ApplyHandleDrag(Vector3.new(0, 0, 2))
+			session.EndHandleDrag()
+			t.expect(near(math.abs(session.GetSelectedInfo().Sway), 2, 0.05)).toBeTruthy()
+			t.expect(near(session.GetSelectedInfo().Sag, 2, 0.05)).toBeTruthy()
+
+			-- The rope's middle actually bowed sideways.
+			local bowed = false
+			for _, p in findRopeParts() do
+				if math.abs(p.Position.Z - kPointA.Z) > 1.5 then
+					bowed = true
+				end
+			end
+			t.expect(bowed).toBeTruthy()
+
+			-- Rediscovery from scratch agrees.
+			session.Deselect()
+			t.expect(session.SelectRopeFromPart(parts[5])).toBeTruthy()
+			t.expect(near(math.abs(session.GetSelectedInfo().Sway), 2, 0.05)).toBeTruthy()
+
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(near(session.GetSelectedInfo().Sway, 0, 0.05)).toBeTruthy()
 		end)
 	end)
 
