@@ -402,6 +402,36 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("hovering the selected rope shows no hover highlight", function()
+		withSession(function(session, settings)
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			-- Aim straight at the rope's lowest point so the ray hits a segment.
+			local ropeMid = kRegionCenter + Vector3.new(0, 8, 0)
+			local screen = camera:WorldToViewportPoint(ropeMid)
+			local screenPos = Vector2.new(screen.X, screen.Y)
+
+			-- Unselected: hover highlights the rope.
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetHoverPolyline()).toBeTruthy()
+
+			-- Selected: the hover highlight is suppressed (the selection's own
+			-- highlight covers it -- the blue polyline was drawing over the
+			-- yellow one).
+			t.expect(session.SelectRopeFromPart(parts[1])).toBeTruthy()
+			t.expect(session.GetHoverPolyline()).toBe(nil)
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetHoverPolyline()).toBe(nil)
+
+			-- Deselected: hover comes back without leaving the rope first.
+			session.Deselect()
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetHoverPolyline()).toBeTruthy()
+		end)
+	end)
+
 	t.test("clicking near a rope selects it through selection leniency", function()
 		withSession(function(session, settings)
 			addStandardRope(session, settings)

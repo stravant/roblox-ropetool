@@ -224,9 +224,15 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		}
 	end
 
+	-- Forward-declared: defined with the rest of the hover handling below.
+	local clearHover: () -> boolean
+
 	local function deselect()
 		if mSelected then
 			mSelected = nil
+			-- Reset the hover gating so the ex-selection becomes hoverable
+			-- again without the cursor having to leave it first.
+			clearHover()
 			changeSignal:Fire()
 		end
 	end
@@ -237,6 +243,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return false
 		end
 		mSelected = sel
+		-- Drop any hover highlight (it usually covers the just-selected rope,
+		-- and would draw over the selection highlight).
+		clearHover()
 		syncSettingsFromSelection(sel)
 		changeSignal:Fire()
 		return true
@@ -598,7 +607,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Hover
 	----------------------------------------------------------------------
 
-	local function clearHover(): boolean
+	function clearHover(): boolean
 		mHoverPickKey = nil
 		if mHoverPolyline ~= nil then
 			mHoverPolyline = nil
@@ -606,6 +615,32 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return true
 		end
 		return false
+	end
+
+	-- Whether the part belongs to the current selection (segments or caps).
+	local function isSelectionPart(part: BasePart): boolean
+		local sel = mSelected
+		if not sel then
+			return false
+		end
+		return table.find(sel.parts, part) ~= nil or table.find(sel.caps, part) ~= nil
+	end
+
+	-- Whether a discovered rope IS the current selection (same part set). The
+	-- hover highlight is suppressed for it: the selection already shows its own
+	-- (yellow) highlight, and the blue hover polyline drawn over the identical
+	-- path would visually take over.
+	local function ropeIsSelected(rope: RopeGraph.Rope): boolean
+		local sel = mSelected
+		if not sel or #rope.chainEdges ~= #sel.parts then
+			return false
+		end
+		for _, eid in rope.chainEdges do
+			if table.find(sel.parts, rope.edges[eid].part) == nil then
+				return false
+			end
+		end
+		return true
 	end
 
 	local function updateHover(screenPosOverride: Vector2?)
@@ -651,10 +686,19 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				mHoverPickKey = key
 				return
 			end
+			-- Over the selected rope: its own highlight covers it, no hover.
+			if typeof(key) == "Instance" and isSelectionPart(key :: any) then
+				local cleared = clearHover()
+				mHoverPickKey = key
+				if cleared then
+					changeSignal:Fire()
+				end
+				return
+			end
 			mHoverPickKey = key
 			local rope = pickRopeAt(screenPosOverride)
 			local changed = false
-			if rope and #rope.chainEdges >= 1 then
+			if rope and #rope.chainEdges >= 1 and not ropeIsSelected(rope) then
 				mHoverPolyline = RopeGraph.ropePolyline(rope)
 				mHoverParts = {}
 				for _, part in RopeGraph.ropeParts(rope) do
