@@ -190,6 +190,11 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	local mHoverPolyline: { Vector3 }? = nil
 	local mHoverParts: { [BasePart]: boolean } = {}
 	local mHoverPickKey: any = nil
+	-- Cursor position at the last pick: an unchanged pick key only skips
+	-- re-picking while the cursor stays put, because the lenient pick depends
+	-- on the cursor position too (the same background part can be the key
+	-- while the cursor moves from near one rope to near another).
+	local mHoverPickPos: Vector2? = nil
 
 	-- Add tool state
 	local mAddFirstPoint: Vector3? = nil
@@ -755,6 +760,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 
 	function clearHover(): boolean
 		mHoverPickKey = nil
+		mHoverPickPos = nil
 		if mHoverPolyline ~= nil then
 			mHoverPolyline = nil
 			mHoverParts = {}
@@ -817,6 +823,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			-- The pick key: the first thing the cursor ray (or, over empty
 			-- space, the cursor sphere) meets. Re-pick only when it changes so
 			-- hover isn't re-running discovery every frame.
+			local cursorScreen = screenPosOverride or UserInputService:GetMouseLocation()
 			local result = mouseRaycast(screenPosOverride)
 			local directPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
 			local key: any = directPart
@@ -824,24 +831,30 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				local sphereResult = cursorSpherecast(screenPosOverride, nil)
 				key = if sphereResult then sphereResult.Instance else "none"
 			end
-			if key == mHoverPickKey then
+			-- An unchanged key only short-circuits while the cursor rests: the
+			-- lenient pick's answer depends on the cursor position, not just
+			-- what the ray/sphere met first.
+			local kRepickPixels = 8
+			local cursorMoved = mHoverPickPos == nil or (cursorScreen - mHoverPickPos :: Vector2).Magnitude > kRepickPixels
+			if key == mHoverPickKey and not cursorMoved then
 				return
 			end
-			-- Crossing onto another part of the already-hovered rope: keep it.
+			-- Crossing along the already-hovered rope: keep it, no re-pick.
 			if typeof(key) == "Instance" and mHoverParts[key :: any] then
 				mHoverPickKey = key
+				mHoverPickPos = cursorScreen
 				return
 			end
 			-- Over the selected rope: its own highlight covers it, no hover.
 			if typeof(key) == "Instance" and isSelectionPart(key :: any) then
 				local cleared = clearHover()
 				mHoverPickKey = key
+				mHoverPickPos = cursorScreen
 				if cleared then
 					changeSignal:Fire()
 				end
 				return
 			end
-			mHoverPickKey = key
 			local rope = pickRopeAt(screenPosOverride)
 			local changed = false
 			if rope and #rope.chainEdges >= 1 and not ropeIsSelected(rope) then
@@ -853,14 +866,14 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				for _, cap in rope.caps do
 					mHoverParts[cap] = true
 				end
-				-- clearHover (via mode changes etc.) resets the key; restore it
-				-- so this frame's pick sticks.
-				mHoverPickKey = key
 				changed = true
 			else
 				changed = clearHover()
-				mHoverPickKey = key
 			end
+			-- clearHover (here or via mode changes) resets the gating; set it
+			-- after so this frame's pick sticks.
+			mHoverPickKey = key
+			mHoverPickPos = cursorScreen
 			if changed then
 				changeSignal:Fire()
 			end

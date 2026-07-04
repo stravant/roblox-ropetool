@@ -532,6 +532,43 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("hover re-picks when the cursor moves onto a nearer rope", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings) -- rope 1 at Z = 0
+			buildRope({
+				PointA = kPointA + Vector3.new(0, 0, 1.6),
+				PointB = kPointB + Vector3.new(0, 0, 1.6),
+				Sag = 2,
+				Segments = 10,
+				SegmentType = "Cylinder",
+				Diameter = 0.3,
+				Parent = workspace,
+			})
+			settings.Mode = "Move"
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			local function hoverAt(worldPos: Vector3)
+				local screen = camera:WorldToViewportPoint(worldPos)
+				session.DebugHoverAt(Vector2.new(screen.X, screen.Y))
+			end
+
+			-- Between the ropes, nearer rope 1 (the farther one from the
+			-- camera): rope 1 highlights.
+			hoverAt(kRegionCenter + Vector3.new(0, 8.6, 0.3))
+			local hp = session.GetHoverPolyline()
+			t.expect(hp).toBeTruthy()
+			t.expect(math.abs(hp[1].Z - kPointA.Z) < 0.5).toBeTruthy()
+
+			-- Directly over rope 2 (nearer the camera): the hover must follow,
+			-- even though the pick key (rope 2's part) can be unchanged from
+			-- the previous position's sphere sweep.
+			hoverAt(kRegionCenter + Vector3.new(0, 8, 1.6))
+			hp = session.GetHoverPolyline()
+			t.expect(hp).toBeTruthy()
+			t.expect(math.abs(hp[1].Z - (kPointA.Z + 1.6)) < 0.5).toBeTruthy()
+		end)
+	end)
+
 	t.test("add points and grab drags snap to the endpoints of other ropes", function()
 		withSession(function(session, settings)
 			-- First rope, A..B.
