@@ -1,6 +1,7 @@
 --!strict
 
 local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
 local Plugin = script.Parent.Parent
 local Packages = Plugin.Packages
@@ -10,6 +11,20 @@ local ReactRoblox = require(Packages.ReactRoblox)
 local VertexMarker = require("./VertexMarker")
 
 local e = React.createElement
+
+-- The DraggerFramework's handle scale (DraggerContext_PluginImpl), replicated
+-- so the hover endpoint balls size exactly like the selection's grab-point
+-- handles rather than being a fixed world size.
+local kHandleScaleFactor = 0.05
+local kEndBallBaseRadius = 0.22 -- GrabPointHandle's BASE_VISUAL_RADIUS
+local function handleScaleAt(point: Vector3): number
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return 1
+	end
+	local distance = (camera.CFrame.Position - point).Magnitude
+	return math.sin(math.rad(camera.FieldOfView)) * distance * kHandleScaleFactor
+end
 
 local HOVER_COLOR = Color3.fromRGB(100, 150, 255)
 local SELECTED_COLOR = Color3.fromRGB(255, 200, 50)
@@ -41,6 +56,36 @@ local function RopeOverlay(props: {
 	local hoverRef = React.useRef(nil :: any)
 	local selectedRef = React.useRef(nil :: any)
 	local addPreviewRef = React.useRef(nil :: any)
+
+	-- Depth-scaled hover end balls track camera movement via a binding (as in
+	-- PolyMap's VertexMarkers): a camera move bumps the tick, which recomputes
+	-- the radii directly with no re-render, synchronously in the same frame.
+	local hasHoverEnds = props.HoverPolyline ~= nil and #props.HoverPolyline >= 2
+	local cameraTick, setCameraTick = React.useBinding(0)
+	React.useEffect(function()
+		if not hasHoverEnds then
+			return
+		end
+		local n = 0
+		local lastCF: CFrame? = nil
+		local conn = RunService.RenderStepped:Connect(function()
+			local camera = workspace.CurrentCamera
+			if camera and camera.CFrame ~= lastCF then
+				lastCF = camera.CFrame
+				n += 1
+				setCameraTick(n)
+			end
+		end)
+		return function()
+			conn:Disconnect()
+		end
+	end, { hasHoverEnds } :: { any })
+
+	local function handleMatchedRadius(position: Vector3)
+		return cameraTick:map(function()
+			return kEndBallBaseRadius * handleScaleAt(position)
+		end)
+	end
 
 	local hoverPolyline = props.HoverPolyline
 	React.useEffect(function()
@@ -121,17 +166,18 @@ local function RopeOverlay(props: {
 	})
 
 	-- Hovered rope endpoint balls: the thin wireframe alone gets lost, the
-	-- end markers draw the eye to it (mirroring the selection's grab dots).
+	-- end markers draw the eye to it. Sized to match the selection's
+	-- grab-point handles at any camera distance.
 	if hoverPolyline and #hoverPolyline >= 2 then
 		children.HoverEndA = e(VertexMarker, {
 			Position = hoverPolyline[1],
 			Color = HOVER_COLOR,
-			Radius = 0.25,
+			Radius = handleMatchedRadius(hoverPolyline[1]),
 		})
 		children.HoverEndB = e(VertexMarker, {
 			Position = hoverPolyline[#hoverPolyline],
 			Color = HOVER_COLOR,
-			Radius = 0.25,
+			Radius = handleMatchedRadius(hoverPolyline[#hoverPolyline]),
 		})
 	end
 
