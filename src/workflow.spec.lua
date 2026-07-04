@@ -31,6 +31,8 @@ local function makeSettings(): Settings.RopeToolSettings
 		RopeMaterial = "Fabric",
 		RopeMaterialVariant = "",
 		RopeEyedropper = "None",
+		SnapRopeEnds = true,
+		SnapGeometry = true,
 		RecentMaterials = { "Fabric", "Plastic", "Metal" },
 		RecentColors = { { 0.412, 0.251, 0.157 } },
 	}
@@ -714,6 +716,44 @@ return function(t: TestTypes.TestContext)
 			session.ApplyHandleDragTo(kPointA + Vector3.new(0.2, 0.25, 0), nil)
 			session.EndHandleDrag()
 			t.expect(selectionSpans(session, kPointB, kPointA, 0.001)).toBeTruthy()
+		end)
+	end)
+
+	t.test("snapping settings disable rope-end and geometry snapping", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings)
+			settings.Mode = "Add"
+
+			-- Rope-end snapping off: a click near the rope's endpoint stays put.
+			local aim = kPointB + Vector3.new(0.3, 0.2, 0)
+			settings.SnapRopeEnds = false
+			session.AddClickAt(aim)
+			t.expect(nearV(session.GetAddFirstPoint(), aim, 0.001)).toBeTruthy()
+			session.DebugEscape()
+			settings.SnapRopeEnds = true
+			session.AddClickAt(aim)
+			t.expect(nearV(session.GetAddFirstPoint(), kPointB, 0.001)).toBeTruthy()
+			session.DebugEscape()
+
+			-- Geometry snapping off: a click near a block corner stays put.
+			local post = Instance.new("Part")
+			post.Size = Vector3.new(2, 12, 2)
+			post.CFrame = CFrame.new(kRegionCenter + Vector3.new(-14, 6, 0))
+			post.Anchored = true
+			post.Parent = workspace
+			local corner = post.Position + Vector3.new(1, 6, 1)
+			local aim2 = corner + Vector3.new(-0.15, -0.1, -0.1)
+			-- Rope-end snapping off too, so the nearby rope's endpoint can't
+			-- catch the click and muddy which tier is being tested.
+			settings.SnapRopeEnds = false
+			settings.SnapGeometry = false
+			session.AddClickAt(aim2, post)
+			t.expect(nearV(session.GetAddFirstPoint(), aim2, 0.001)).toBeTruthy()
+			session.DebugEscape()
+			settings.SnapGeometry = true
+			session.AddClickAt(aim2, post)
+			t.expect(nearV(session.GetAddFirstPoint(), corner, 0.001)).toBeTruthy()
+			session.DebugEscape()
 		end)
 	end)
 

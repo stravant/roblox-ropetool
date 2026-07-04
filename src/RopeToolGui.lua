@@ -114,6 +114,8 @@ local function getStatusText(
 			return "Click the second attachment point to build the rope. Escape cancels."
 		end
 		return "Click the first attachment point. Points snap to nearby part corners and edges."
+	elseif mode == "Settings" then
+		return "Global options for the tool. Snapping applies to Add clicks and endpoint drags."
 	end
 	return ""
 end
@@ -190,25 +192,88 @@ local function ModePanel(props: {
 		})
 	end
 
+	-- A blank 1/3-width slot so a row's remaining chips stay column-aligned.
+	local function emptySlot(order: number)
+		return e("Frame", {
+			Size = UDim2.new(0, 0, 0, 24),
+			BackgroundTransparency = 1,
+			LayoutOrder = order,
+		}, {
+			Flex = e("UIFlexItem", { FlexMode = Enum.UIFlexMode.Grow }),
+		})
+	end
+
+	local function row(order: number, children: { [string]: any })
+		children.ListLayout = e("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 4),
+		})
+		return e("Frame", {
+			Size = UDim2.fromScale(1, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = order,
+		}, children)
+	end
+
 	return e(SubPanel, {
 		Title = "Mode",
 		LayoutOrder = props.LayoutOrder,
 		Padding = UDim.new(0, 4),
 	}, {
-		Row1 = e("Frame", {
-			Size = UDim2.fromScale(1, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			LayoutOrder = 1,
-		}, {
-			ListLayout = e("UIListLayout", {
-				FillDirection = Enum.FillDirection.Horizontal,
-				SortOrder = Enum.SortOrder.LayoutOrder,
-				Padding = UDim.new(0, 4),
-			}),
+		Row1 = row(1, {
 			Move = modeChip("Move", "Move", 1),
 			Add = modeChip("Add", "Add", 2),
 			Color = modeChip("Color", "Color", 3),
+		}),
+		Row2 = row(2, {
+			SettingsChip = modeChip("Settings", "Settings", 1),
+			Empty1 = emptySlot(2),
+			Empty2 = emptySlot(3),
+		}),
+	})
+end
+
+-- The global Settings tab: options that aren't tied to a single editing mode.
+local function SnappingPanel(props: {
+	Settings: Settings.RopeToolSettings,
+	UpdatedSettings: () -> (),
+	LayoutOrder: number?,
+})
+	local nextOrder = createNextOrder()
+	return e(SubPanel, {
+		Title = "Snapping",
+		LayoutOrder = props.LayoutOrder,
+		Padding = UDim.new(0, 4),
+	}, {
+		RopeEnds = e(HelpGui.WithHelpIcon, {
+			LayoutOrder = nextOrder(),
+			Subject = e(Checkbox, {
+				Label = "Rope End",
+				Checked = props.Settings.SnapRopeEnds,
+				Changed = function(checked: boolean)
+					props.Settings.SnapRopeEnds = checked
+					props.UpdatedSettings()
+				end,
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "Snap placed and dragged rope endpoints onto the ends of nearby ropes, so ropes chain together exactly.",
+			}),
+		}),
+		GeometryEdges = e(HelpGui.WithHelpIcon, {
+			LayoutOrder = nextOrder(),
+			Subject = e(Checkbox, {
+				Label = "Geometry Edges",
+				Checked = props.Settings.SnapGeometry,
+				Changed = function(checked: boolean)
+					props.Settings.SnapGeometry = checked
+					props.UpdatedSettings()
+				end,
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "Snap placed and dragged rope endpoints onto the corners and edges of the part under the cursor.",
+			}),
 		}),
 	})
 end
@@ -1112,9 +1177,10 @@ local function RopeToolGui(props: {
 	local session = props.Session
 	local mode = currentSettings.Mode
 	-- The rope's structural parameters show for Move/Add; the appearance
-	-- panels live in the Color tool.
-	local showRope = mode ~= "Color"
+	-- panels live in the Color tool; global options in the Settings tab.
+	local showRope = mode == "Move" or mode == "Add"
 	local showColor = mode == "Color"
+	local showSettings = mode == "Settings"
 	local nextOrder = createNextOrder()
 
 	local overlay: React.ReactNode = nil
@@ -1158,6 +1224,11 @@ local function RopeToolGui(props: {
 				LayoutOrder = nextOrder(),
 			}),
 			MaterialPanel = showColor and e(MaterialPanel, {
+				Settings = currentSettings,
+				UpdatedSettings = props.UpdatedSettings,
+				LayoutOrder = nextOrder(),
+			}),
+			SnappingPanel = showSettings and e(SnappingPanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),

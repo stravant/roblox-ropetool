@@ -593,7 +593,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 
-		local endpoints = RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts)
+		local endpoints: { Vector3 } = if currentSettings.SnapRopeEnds
+			then RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts)
+			else {}
 
 		-- Priority pass: the nearest rope endpoint within the world-space
 		-- priority radius beats everything else.
@@ -632,7 +634,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		-- (found blackbox-style, borrowed from GapFill) contributes its two
 		-- ends to the pool, and serves as the along-edge fallback below.
 		local meshEdge: any = nil
-		if part and (part:IsA("MeshPart") or part:IsA("UnionOperation")) then
+		if part and currentSettings.SnapGeometry and (part:IsA("MeshPart") or part:IsA("UnionOperation")) then
 			local viewDirection = if camera then camera.CFrame.LookVector else Vector3.zAxis
 			-- blackboxFindClosestMeshEdge wants a RaycastResult; synthesize the
 			-- two fields it reads (Instance, Position, Normal) from what we have.
@@ -650,7 +652,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end
 
 		local geom: any = nil
-		if part and not meshEdge and not (part:IsA("MeshPart") or part:IsA("UnionOperation")) then
+		if
+			part
+			and currentSettings.SnapGeometry
+			and not meshEdge
+			and not (part:IsA("MeshPart") or part:IsA("UnionOperation"))
+		then
 			local ok, result = pcall(function()
 				return Geometry.getGeometry(part :: BasePart, worldPos)
 			end)
@@ -819,6 +826,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		-- a trap there).
 		if currentSettings.Mode == "Add" and mSelected then
 			deselect()
+		end
+		-- Leaving the selection modes clears any lingering rope hover.
+		if currentSettings.Mode ~= "Move" and currentSettings.Mode ~= "Color" then
+			if clearHover() then
+				changeSignal:Fire()
+			end
 		end
 
 		if mIsOverUI or mIsDraggingHandle or (queryMouseOverHandle ~= nil and queryMouseOverHandle()) then

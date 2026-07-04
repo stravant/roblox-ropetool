@@ -13,7 +13,7 @@ local TestTypes = require("./TestTypes")
 
 local e = React.createElement
 
-local ALL_MODES = { "Move", "Add", "Color" }
+local ALL_MODES = { "Move", "Add", "Color", "Settings" }
 
 local function makeSettings(mode: string): Settings.RopeToolSettings
 	return {
@@ -34,6 +34,8 @@ local function makeSettings(mode: string): Settings.RopeToolSettings
 		RopeMaterial = "Fabric",
 		RopeMaterialVariant = "",
 		RopeEyedropper = "None",
+		SnapRopeEnds = true,
+		SnapGeometry = true,
 		RecentMaterials = { "Fabric", "Plastic", "Metal" },
 		RecentColors = { { 0.412, 0.251, 0.157 } },
 	}
