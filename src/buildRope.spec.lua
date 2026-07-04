@@ -144,6 +144,43 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("segments lie flush in the rope's bend plane, level or tilted", function()
+		withFolder(function(folder)
+			-- Sway-only on a tilted chord (the tricky case), and a combined
+			-- sag+sway rope: both are planar because sag and sway share the
+			-- same profile, so all segments must align to one plane.
+			local cases = {
+				{ sag = 0, sway = 2.5 },
+				{ sag = 3, sway = 2 },
+			}
+			for caseIndex, case in cases do
+				local a = kRegion + Vector3.new(0, 0, 30 + caseIndex * 30)
+				local b = a + Vector3.new(20, 6, 0) -- endpoints at different heights
+				local parts = buildRope({
+					PointA = a,
+					PointB = b,
+					Sag = case.sag,
+					Sway = case.sway,
+					Segments = 6,
+					SegmentType = "Box",
+					Diameter = 0.5,
+					Parent = folder,
+				})
+				local swayDir = ropeCurve.swayDirection(a, b)
+				assert(swayDir)
+				local offset = -Vector3.yAxis * case.sag + swayDir * case.sway
+				local normal = ((b - a):Cross(offset)).Unit
+				for _, part in parts do
+					-- Cross-section aligned to the bend-plane normal...
+					t.expect(math.abs(part.CFrame.ZVector:Dot(normal)) > 0.9999).toBeTruthy()
+					-- ...and centered exactly in the plane, so the box faces
+					-- of every segment are coplanar.
+					t.expect(math.abs((part.Position - a):Dot(normal)) < 0.001).toBeTruthy()
+				end
+			end
+		end)
+	end)
+
 	t.test("rebuild reuses existing parts and trims excess", function()
 		withFolder(function(folder)
 			local a = kRegion

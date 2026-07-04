@@ -29,12 +29,46 @@ export type BuildRopeParams = {
 }
 
 -- A frame at mid whose X axis runs along dir. Both segment shapes are built
--- with X as the long axis so discovery reads them back uniformly.
-local function frameAlong(mid: Vector3, dir: Vector3): CFrame
+-- with X as the long axis so discovery reads them back uniformly. When the
+-- rope's bend-plane normal is known, the cross-section aligns to it (local Z
+-- = plane normal), so every segment lies flush in the plane; otherwise an
+-- up-reference frame is used.
+local function frameAlong(mid: Vector3, dir: Vector3, planeNormal: Vector3?): CFrame
+	if planeNormal then
+		local y = planeNormal:Cross(dir)
+		if y.Magnitude > 0.001 then
+			return CFrame.fromMatrix(mid, dir, y.Unit, planeNormal)
+		end
+	end
 	local up = if math.abs(dir:Dot(Vector3.yAxis)) > 0.99 then Vector3.xAxis else Vector3.yAxis
 	local z = dir:Cross(up).Unit
 	local y = z:Cross(dir).Unit
 	return CFrame.fromMatrix(mid, dir, y, z)
+end
+
+-- The rope's bend plane. Sag and sway share the same parabolic profile, so
+-- the combined offset direction (-Y * sag + swayDir * sway) is CONSTANT along
+-- the rope: the whole curve is planar, in the plane spanned by the chord and
+-- that offset. Aligning every segment's cross-section to this plane's normal
+-- makes the segments line up exactly -- coplanar box faces, outer-join
+-- corners meeting precisely -- for any mix of sag and sway, level or tilted.
+-- nil for a straight rope (no bend, no preferred plane) or degenerate chords.
+local function bendPlaneNormal(a: Vector3, b: Vector3, sag: number, sway: number): Vector3?
+	local offset = -Vector3.yAxis * sag
+	if sway ~= 0 then
+		local swayDir = ropeCurve.swayDirection(a, b)
+		if swayDir then
+			offset += swayDir * sway
+		end
+	end
+	if offset.Magnitude < 1e-4 then
+		return nil
+	end
+	local normal = (b - a):Cross(offset)
+	if normal.Magnitude < 1e-4 then
+		return nil
+	end
+	return normal.Unit
 end
 
 -- Cap on the per-joint outer-join extension, in diameters, so a degenerate
@@ -63,6 +97,7 @@ end
 -- parts (empty unless HaveEndcaps and Cylinder mode).
 local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
 	local points = ropeCurve.computePoints(params.PointA, params.PointB, params.Sag, params.Segments, params.Sway)
+	local planeNormal = bendPlaneNormal(params.PointA, params.PointB, params.Sag, params.Sway or 0)
 	local existingParts = params.ExistingParts
 	local props = params.Props
 	local shape = if params.SegmentType == "Cylinder" then Enum.PartType.Cylinder else Enum.PartType.Block
@@ -124,7 +159,7 @@ local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
 		end
 		part.Shape = shape
 		part.Size = Vector3.new(length, diameter, diameter)
-		part.CFrame = frameAlong((p1 + p2) / 2, span / length)
+		part.CFrame = frameAlong((p1 + p2) / 2, span / length, planeNormal)
 		if part.Parent ~= params.Parent then
 			part.Parent = params.Parent
 		end
