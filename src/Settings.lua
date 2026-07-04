@@ -6,7 +6,7 @@ local kSettingsKey = "ropeToolState"
 local PluginGuiTypes = require("./PluginGui/Types")
 
 export type RopeToolSettings = PluginGuiTypes.PluginGuiSettings & {
-	Mode: string, -- "Move" | "Add"
+	Mode: string, -- "Move" | "Add" | "Color"
 	Segments: number,
 	SegmentType: string, -- "Box" | "Cylinder"
 	Sag: number,

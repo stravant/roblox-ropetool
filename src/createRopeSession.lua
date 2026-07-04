@@ -814,9 +814,10 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			clearAddState()
 			changeSignal:Fire()
 		end
-		-- Leaving Move mode drops the selection (the panel edits apply to the
-		-- selection only in Move mode, so a hidden selection would be a trap).
-		if currentSettings.Mode ~= "Move" and mSelected then
+		-- Move and Color share the selection; only Add mode drops it (its
+		-- panel edits configure the NEXT rope, so a hidden selection would be
+		-- a trap there).
+		if currentSettings.Mode == "Add" and mSelected then
 			deselect()
 		end
 
@@ -832,7 +833,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return
 		end
 
-		if currentSettings.Mode == "Move" then
+		if currentSettings.Mode == "Move" or currentSettings.Mode == "Color" then
 			-- The pick key: the first thing the cursor ray (or, over empty
 			-- space, the cursor sphere) meets. Re-pick only when it changes so
 			-- hover isn't re-running discovery every frame.
@@ -981,7 +982,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return
 		end
 
-		if mode == "Move" then
+		if mode == "Move" or mode == "Color" then
 			local rope = pickRopeAt(nil)
 			if not rope or not selectRope(rope) then
 				deselect()
@@ -1406,7 +1407,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			changeSignal:Fire()
 			return
 		end
-		if currentSettings.Mode == "Move" and mSelected then
+		if (currentSettings.Mode == "Move" or currentSettings.Mode == "Color") and mSelected then
 			deselect()
 		end
 	end
@@ -1465,8 +1466,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	session.ChangeSignal = changeSignal
 	session.Update = function()
 		fixedSelection.SelectionChanged:Fire()
-		-- A panel edit while a rope is selected applies to the rope.
-		if currentSettings.Mode == "Move" then
+		-- A panel edit while a rope is selected applies to the rope (Move and
+		-- Color share the selection; the handles only show in Move).
+		if currentSettings.Mode == "Move" or currentSettings.Mode == "Color" then
 			applySettingsToSelection()
 		end
 	end

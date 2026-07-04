@@ -104,6 +104,11 @@ local function getStatusText(
 			return "Drag the endpoint handles to move the rope's ends, or the middle handle to adjust its sag. The panel edits apply to the selected rope."
 		end
 		return "Click a rope to select it. Ropes are discovered from chains of matching adjacent parts."
+	elseif mode == "Color" then
+		if session and session.HasSelection() then
+			return "The Color and Material panels apply to the selected rope."
+		end
+		return "Click a rope to select it, then pick its color and material."
 	elseif mode == "Add" then
 		if session and session.GetAddFirstPoint() then
 			return "Click the second attachment point to build the rope. Escape cancels."
@@ -203,6 +208,7 @@ local function ModePanel(props: {
 			}),
 			Move = modeChip("Move", "Move", 1),
 			Add = modeChip("Add", "Add", 2),
+			Color = modeChip("Color", "Color", 3),
 		}),
 	})
 end
@@ -1104,6 +1110,11 @@ local function RopeToolGui(props: {
 })
 	local currentSettings = props.CurrentSettings
 	local session = props.Session
+	local mode = currentSettings.Mode
+	-- The rope's structural parameters show for Move/Add; the appearance
+	-- panels live in the Color tool.
+	local showRope = mode ~= "Color"
+	local showColor = mode == "Color"
 	local nextOrder = createNextOrder()
 
 	local overlay: React.ReactNode = nil
@@ -1136,17 +1147,17 @@ local function RopeToolGui(props: {
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),
 			}),
-			RopePanel = e(RopePanel, {
+			RopePanel = showRope and e(RopePanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),
 			}),
-			ColorPanel = e(ColorPanel, {
+			ColorPanel = showColor and e(ColorPanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),
 			}),
-			MaterialPanel = e(MaterialPanel, {
+			MaterialPanel = showColor and e(MaterialPanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),

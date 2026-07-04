@@ -17,8 +17,11 @@ Modes:
 - **Move** — hover/click to select a rope (discovered by walking matching adjacent parts), then
   drag its endpoints (axis arrows, or the endpoint sphere for a free drag with Add-style
   snapping) or the middle handle cluster (vertical pair = sag, horizontal pair perpendicular to
-  the chord = sway). Panel edits (segments, type, diameter, sag, sway, color, material) apply to
-  the selected rope.
+  the chord = sway). Panel edits (segments, type, diameter, sag, sway) apply to the selected
+  rope.
+- **Color** — the appearance tool: same hover/click rope selection as Move (the selection is
+  shared between the two), but no drag handles; the Color and Material panels live here and
+  apply to the selected rope.
 
 ## Build Commands
 

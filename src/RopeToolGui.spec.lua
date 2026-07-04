@@ -13,7 +13,7 @@ local TestTypes = require("./TestTypes")
 
 local e = React.createElement
 
-local ALL_MODES = { "Move", "Add" }
+local ALL_MODES = { "Move", "Add", "Color" }
 
 local function makeSettings(mode: string): Settings.RopeToolSettings
 	return {

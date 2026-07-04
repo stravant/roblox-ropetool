@@ -351,6 +351,44 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("the Color tool shares the selection with Move and hides the handles", function()
+		withSession(function(session, settings)
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			t.expect(session.SelectRopeFromPart(parts[3])).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeTruthy()
+
+			-- Switching to Color keeps the selection but hides the handles.
+			settings.Mode = "Color"
+			session.Update()
+			task.wait() -- let the live hover loop process the mode change
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeFalsy()
+
+			-- Appearance edits apply to the shared selection from Color mode.
+			settings.RopeColor = { 0, 1, 0 }
+			session.Update()
+			for _, p in findRopeParts() do
+				t.expect(near(p.Color.G, 1, 0.01)).toBeTruthy()
+			end
+
+			-- Selecting works in Color mode too, and survives going back to
+			-- Move, where the handles reappear.
+			session.Deselect()
+			t.expect(session.SelectRopeFromPart(parts[5])).toBeTruthy()
+			settings.Mode = "Move"
+			session.Update()
+			task.wait()
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeTruthy()
+
+			-- One undo reverts the recolor.
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(near(findRopeParts()[1].Color.G, 1, 0.01)).toBeFalsy()
+		end)
+	end)
+
 	t.test("endcaps: cylinder ropes get sphere caps, discoverable and toggleable", function()
 		withSession(function(session, settings)
 			settings.HaveEndcaps = true
