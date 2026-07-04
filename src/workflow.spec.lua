@@ -3,6 +3,7 @@
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 local TestTypes = require("./TestTypes")
+local buildRope = require("./buildRope")
 local createRopeSession = require("./createRopeSession")
 local Settings = require("./Settings")
 
@@ -494,6 +495,40 @@ return function(t: TestTypes.TestContext)
 			t.expect(session.DebugSelectAt(Vector2.new(screen.X, screen.Y))).toBeTruthy()
 			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
 			t.expect(session.GetSelectedInfo().Segments).toBe(10)
+		end)
+	end)
+
+	t.test("the pick drills past nearer ropes to select the one closest to the cursor", function()
+		withSession(function(session, settings)
+			-- Two parallel ropes 1.6 studs apart in depth (Z, toward the
+			-- camera at +Z). Aim between them but clearly nearer rope 1: the
+			-- sphere sweep meets rope 2 first (closer to the camera), so a
+			-- first-hit pick would wrongly take it.
+			addStandardRope(session, settings) -- rope 1 at Z = 0
+			-- Rope 2 built directly (an Add click this close would endpoint-
+			-- snap onto rope 1).
+			buildRope({
+				PointA = kPointA + Vector3.new(0, 0, 1.6),
+				PointB = kPointB + Vector3.new(0, 0, 1.6),
+				Sag = 2,
+				Segments = 10,
+				SegmentType = "Cylinder",
+				Diameter = 0.3,
+				Parent = workspace,
+			})
+			t.expect(#findRopeParts()).toBe(20)
+
+			settings.Mode = "Move"
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			-- Rope midpoints sit at (0, 8, 0) and (0, 8, 1.6) relative to the
+			-- region; this aim point is 0.67 from rope 1 and 1.43 from rope 2,
+			-- and its ray hits neither directly.
+			local aim = kRegionCenter + Vector3.new(0, 8.6, 0.3)
+			local screen = camera:WorldToViewportPoint(aim)
+			t.expect(screen.Z > 0).toBeTruthy()
+			t.expect(session.DebugSelectAt(Vector2.new(screen.X, screen.Y))).toBeTruthy()
+			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
 		end)
 	end)
 

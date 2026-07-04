@@ -67,6 +67,42 @@ local function cursorSpherecast(screenPos: Vector2?, exclude: { Instance }?): Ra
 	return workspace:Spherecast(ray.Origin, kSpherecastRadius, ray.Direction * 1000, params)
 end
 
+-- Distance from a ray (unit direction, t >= 0) to a segment [a, b].
+local function rayToSegmentDistance(origin: Vector3, direction: Vector3, a: Vector3, b: Vector3): number
+	local seg = b - a
+	local segLenSq = seg:Dot(seg)
+	local w0 = origin - a
+	local s: number
+	if segLenSq < 1e-9 then
+		s = 0
+	else
+		local uv = direction:Dot(seg)
+		local denom = segLenSq - uv * uv
+		if math.abs(denom) < 1e-9 then
+			s = 0 -- parallel: any point works, clamping handles the rest
+		else
+			s = math.clamp((seg:Dot(w0) - direction:Dot(w0) * uv) / denom, 0, 1)
+		end
+	end
+	local t = math.max(0, direction:Dot(a + seg * s - origin))
+	-- One refinement pass after clamping t, for endpoints behind the camera.
+	if segLenSq >= 1e-9 then
+		s = math.clamp((origin + direction * t - a):Dot(seg) / segLenSq, 0, 1)
+		t = math.max(0, direction:Dot(a + seg * s - origin))
+	end
+	return (origin + direction * t - (a + seg * s)).Magnitude
+end
+
+-- Minimal distance from the cursor ray to a rope's polyline: how close the
+-- user is pointing to that rope as a whole.
+local function rayToPolylineDistance(origin: Vector3, direction: Vector3, polyline: { Vector3 }): number
+	local best = math.huge
+	for i = 1, #polyline - 1 do
+		best = math.min(best, rayToSegmentDistance(origin, direction, polyline[i], polyline[i + 1]))
+	end
+	return best
+end
+
 local function createCFrameDraggerSchema(isEmptyFunc, getBoundingBoxFunc)
 	local schema = table.clone(DraggerSchemaCore)
 	schema.getMouseTarget = function()
@@ -263,15 +299,18 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return selectRope(rope)
 	end
 
-	-- Selection leniency: the rope pick shared by hover and click. The direct
-	-- raycast hit is discovered first; when that doesn't yield a significant
-	-- rope (>= kSignificantSegments), retry with a spherecast -- excluding the
-	-- parts already tried -- to find the nearby rope the user was likely aiming
-	-- at (rope segments are thin, and often hang in front of other geometry).
-	-- The nearby candidate only wins when it has more segments than the direct
-	-- pick, so a direct hit is never hijacked by something smaller.
+	-- Selection leniency: the rope pick shared by hover and click. A direct
+	-- raycast hit on a significant rope (>= kSignificantSegments) wins
+	-- unambiguously. Otherwise the pick DRILLS through everything in the
+	-- cursor's sphere corridor -- excluding each hit and casting again, not
+	-- stopping at the first plausible thing -- collecting every distinct rope,
+	-- then takes the significant rope whose polyline passes closest to the
+	-- cursor ray. So with several ropes near each other the one the user is
+	-- actually pointing at wins, not whichever surface the sweep met first.
+	-- With no significant candidate the direct hit keeps priority (a click on
+	-- a bare stick selects it), then the nearest small candidate.
 	local kSignificantSegments = 3
-	local kMaxSphereRetries = 4
+	local kMaxSphereDrills = 8
 	local function pickRopeAt(screenPos: Vector2?): (RopeGraph.Rope?, BasePart?)
 		local result = mouseRaycast(screenPos)
 		local directPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
@@ -279,23 +318,76 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		if directRope and #directRope.chainEdges >= kSignificantSegments then
 			return directRope, directPart
 		end
-		local directCount = if directRope then #directRope.chainEdges else 0
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return directRope, directPart
+		end
+		local mouseLocation = screenPos or UserInputService:GetMouseLocation()
+		local ray = camera:ViewportPointToRay(mouseLocation.X, mouseLocation.Y)
+		local rayDirection = ray.Direction.Unit
+
+		type Candidate = { rope: RopeGraph.Rope, part: BasePart, distance: number }
+		local candidates: { Candidate } = {}
+		-- Parts already accounted for by some candidate rope, so further hits
+		-- on the same rope neither re-discover nor duplicate it.
+		local knownParts: { [BasePart]: boolean } = {}
+		local function noteCandidate(rope: RopeGraph.Rope, part: BasePart)
+			for _, p in RopeGraph.ropeParts(rope) do
+				knownParts[p] = true
+			end
+			for _, cap in rope.caps do
+				knownParts[cap] = true
+			end
+			table.insert(candidates, {
+				rope = rope,
+				part = part,
+				distance = rayToPolylineDistance(ray.Origin, rayDirection, RopeGraph.ropePolyline(rope)),
+			})
+		end
+		if directRope and directPart then
+			noteCandidate(directRope, directPart)
+		end
+
 		local exclude: { Instance } = if directPart then { directPart } else {}
-		for _ = 1, kMaxSphereRetries do
+		for _ = 1, kMaxSphereDrills do
 			local sphereResult = cursorSpherecast(screenPos, exclude)
 			if not sphereResult then
 				break
 			end
 			if sphereResult.Instance:IsA("BasePart") then
 				local spherePart = sphereResult.Instance :: BasePart
-				local sphereRope = RopeGraph.discoverRope(spherePart)
-				if sphereRope and #sphereRope.chainEdges > directCount then
-					return sphereRope, spherePart
+				if not knownParts[spherePart] then
+					local sphereRope = RopeGraph.discoverRope(spherePart)
+					if sphereRope and #sphereRope.chainEdges >= 1 then
+						noteCandidate(sphereRope, spherePart)
+					end
 				end
 			end
 			table.insert(exclude, sphereResult.Instance)
 		end
-		return directRope, directPart
+
+		local bestSignificant: Candidate? = nil
+		local bestAny: Candidate? = nil
+		for _, candidate in candidates do
+			if not bestAny or candidate.distance < bestAny.distance then
+				bestAny = candidate
+			end
+			if #candidate.rope.chainEdges >= kSignificantSegments then
+				if not bestSignificant or candidate.distance < bestSignificant.distance then
+					bestSignificant = candidate
+				end
+			end
+		end
+		if bestSignificant then
+			return bestSignificant.rope, bestSignificant.part
+		end
+		if directRope then
+			return directRope, directPart
+		end
+		if bestAny then
+			return bestAny.rope, bestAny.part
+		end
+		return nil, nil
 	end
 
 	----------------------------------------------------------------------
