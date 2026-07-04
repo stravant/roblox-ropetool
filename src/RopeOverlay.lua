@@ -25,29 +25,51 @@ local function highlightRadius(diameter: number?): number
 	return (diameter or 0.3) * 0.25
 end
 
--- A polyline drawn as a chain of cylinders. Each segment is lengthened by
--- one radius (half each end) so consecutive cylinders overlap at the bends
--- instead of showing wedge gaps.
+-- A polyline drawn as a chain of cylinders. Interior joints overlap by half
+-- a radius on each side so the bends show no wedge gaps; the two outer ends
+-- can be inset (EndInset) to leave room for the endpoint grab dots.
 local function PolylineAdornment(props: {
 	Points: { Vector3 }?,
 	Color: Color3,
 	Radius: number,
 	Transparency: number?,
+	EndInset: number?,
 })
 	local points = props.Points
 	if not points or #points < 2 then
 		return nil
 	end
+	local n = #points
+	local firstPoint = points[1]
+	local lastPoint = points[n]
+	local inset = props.EndInset or 0
+	if inset > 0 then
+		-- Pull each outer end toward its neighbour, keeping some of the
+		-- outermost segment so short ropes don't lose it entirely.
+		local firstSpan = points[2] - firstPoint
+		if firstSpan.Magnitude > 0.001 then
+			firstPoint += firstSpan.Unit * math.min(inset, firstSpan.Magnitude * 0.6)
+		end
+		local lastSpan = points[n - 1] - lastPoint
+		if lastSpan.Magnitude > 0.001 then
+			lastPoint += lastSpan.Unit * math.min(inset, lastSpan.Magnitude * 0.6)
+		end
+	end
 	local children: { [string]: any } = {}
-	for i = 1, #points - 1 do
-		local a = points[i]
-		local b = points[i + 1]
+	for i = 1, n - 1 do
+		local a = if i == 1 then firstPoint else points[i]
+		local b = if i == n - 1 then lastPoint else points[i + 1]
 		local length = (b - a).Magnitude
 		if length > 0.001 then
+			local direction = (b - a) / length
+			-- Overlap into interior joints only, not past the outer ends.
+			local startExtend = if i > 1 then props.Radius / 2 else 0
+			local endExtend = if i < n - 1 then props.Radius / 2 else 0
+			local center = (a - direction * startExtend + b + direction * endExtend) / 2
 			children["Seg" .. i] = e("CylinderHandleAdornment", {
 				Adornee = workspace.Terrain,
-				CFrame = CFrame.lookAt((a + b) / 2, b),
-				Height = length + props.Radius,
+				CFrame = CFrame.lookAt(center, center + direction),
+				Height = length + startExtend + endExtend,
 				Radius = props.Radius,
 				Color3 = props.Color,
 				Transparency = props.Transparency or 0,
@@ -114,10 +136,13 @@ local function RopeOverlay(props: {
 		Radius = highlightRadius(props.HoverDiameter),
 	})
 
+	-- The selection highlight stops short of the two ends: the endpoint grab
+	-- dots already mark them, and the line running into the dots was noisy.
 	children.SelectedHighlight = e(PolylineAdornment, {
 		Points = props.SelectedPolyline,
 		Color = SELECTED_COLOR,
 		Radius = highlightRadius(props.SelectedDiameter),
+		EndInset = math.max(0.8, (props.SelectedDiameter or 0.3) * 2),
 	})
 
 	-- Wireframe adornment for the Add preview curve and first-point cross.
