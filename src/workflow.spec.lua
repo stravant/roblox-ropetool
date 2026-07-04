@@ -684,6 +684,27 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("the add snap preview hides while an eyedropper is active", function()
+		withSession(function(session, settings)
+			settings.Mode = "Add"
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			local screen = camera:WorldToViewportPoint(kRegionCenter)
+			local screenPos = Vector2.new(screen.X, screen.Y)
+
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetAddHoverPoint()).toBeTruthy()
+
+			settings.RopeEyedropper = "Color"
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetAddHoverPoint()).toBe(nil)
+
+			settings.RopeEyedropper = "None"
+			session.DebugHoverAt(screenPos)
+			t.expect(session.GetAddHoverPoint()).toBeTruthy()
+		end)
+	end)
+
 	t.test("escape cancels a half-placed rope", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

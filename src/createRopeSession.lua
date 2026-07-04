@@ -878,6 +878,16 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				changeSignal:Fire()
 			end
 		elseif currentSettings.Mode == "Add" then
+			-- While an eyedropper is active a click samples a color/material
+			-- rather than placing a point: hide the snap preview.
+			if currentSettings.RopeEyedropper ~= "None" then
+				if mAddHoverPoint ~= nil then
+					mAddHoverPoint = nil
+					mAddHoverSnapped = false
+					changeSignal:Fire()
+				end
+				return
+			end
 			local result = mouseRaycast(screenPosOverride)
 			local cursorScreen = screenPosOverride or UserInputService:GetMouseLocation()
 			local newPoint: Vector3? = nil
