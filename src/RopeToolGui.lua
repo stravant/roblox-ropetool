@@ -1109,9 +1109,12 @@ local function RopeToolGui(props: {
 	local overlay: React.ReactNode = nil
 	if session then
 		local addHoverPoint, addHoverSnapped = session.GetAddHoverPoint()
+		local selectedInfo = session.GetSelectedInfo()
 		overlay = e(RopeOverlay, {
 			HoverPolyline = session.GetHoverPolyline(),
+			HoverDiameter = session.GetHoverDiameter(),
 			SelectedPolyline = session.GetSelectedPolyline(),
+			SelectedDiameter = if selectedInfo then selectedInfo.Diameter else nil,
 			AddFirstPoint = session.GetAddFirstPoint(),
 			AddHoverPoint = addHoverPoint,
 			AddHoverSnapped = addHoverSnapped,

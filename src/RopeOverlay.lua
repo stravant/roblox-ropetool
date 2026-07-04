@@ -17,6 +17,48 @@ local ADD_PREVIEW_COLOR = Color3.fromRGB(50, 200, 50)
 local SNAP_MARKER_COLOR = Color3.fromRGB(50, 255, 50)
 local FREE_MARKER_COLOR = Color3.fromRGB(220, 220, 220)
 
+-- The hover/selected highlight radius: a sheath slightly fatter than the
+-- rope itself, so it reads clearly at any rope size (a 1px wireframe along
+-- the center line gets lost -- unlike PolyMap's, it doesn't sit on any
+-- natural part edge).
+local function highlightRadius(diameter: number?): number
+	return (diameter or 0.3) * 0.7 + 0.05
+end
+
+-- A polyline drawn as a chain of cylinders. Each segment is lengthened by
+-- one radius (half each end) so consecutive cylinders overlap at the bends
+-- instead of showing wedge gaps.
+local function PolylineAdornment(props: {
+	Points: { Vector3 }?,
+	Color: Color3,
+	Radius: number,
+	Transparency: number?,
+})
+	local points = props.Points
+	if not points or #points < 2 then
+		return nil
+	end
+	local children: { [string]: any } = {}
+	for i = 1, #points - 1 do
+		local a = points[i]
+		local b = points[i + 1]
+		local length = (b - a).Magnitude
+		if length > 0.001 then
+			children["Seg" .. i] = e("CylinderHandleAdornment", {
+				Adornee = workspace.Terrain,
+				CFrame = CFrame.lookAt((a + b) / 2, b),
+				Height = length + props.Radius,
+				Radius = props.Radius,
+				Color3 = props.Color,
+				Transparency = props.Transparency or 0.4,
+				AlwaysOnTop = true,
+				ZIndex = 0,
+			})
+		end
+	end
+	return e("Folder", nil, children)
+end
+
 local function drawPolyline(wire: WireframeHandleAdornment, points: { Vector3 })
 	for i = 1, #points - 1 do
 		wire:AddLine(points[i], points[i + 1])
@@ -32,49 +74,15 @@ end
 
 local function RopeOverlay(props: {
 	HoverPolyline: { Vector3 }?,
+	HoverDiameter: number?,
 	SelectedPolyline: { Vector3 }?,
+	SelectedDiameter: number?,
 	AddFirstPoint: Vector3?,
 	AddHoverPoint: Vector3?,
 	AddHoverSnapped: boolean?,
 	AddPreviewPoints: { Vector3 }?,
 })
-	local hoverRef = React.useRef(nil :: any)
-	local selectedRef = React.useRef(nil :: any)
 	local addPreviewRef = React.useRef(nil :: any)
-
-	local hoverPolyline = props.HoverPolyline
-	React.useEffect(function()
-		local wire = hoverRef.current :: WireframeHandleAdornment?
-		if not wire then
-			return
-		end
-		wire:Clear()
-		if hoverPolyline then
-			drawPolyline(wire, hoverPolyline)
-		end
-		return function()
-			if wire then
-				wire:Clear()
-			end
-		end
-	end)
-
-	local selectedPolyline = props.SelectedPolyline
-	React.useEffect(function()
-		local wire = selectedRef.current :: WireframeHandleAdornment?
-		if not wire then
-			return
-		end
-		wire:Clear()
-		if selectedPolyline then
-			drawPolyline(wire, selectedPolyline)
-		end
-		return function()
-			if wire then
-				wire:Clear()
-			end
-		end
-	end)
 
 	local addPreviewPoints = props.AddPreviewPoints
 	local addFirstPoint = props.AddFirstPoint
@@ -99,20 +107,22 @@ local function RopeOverlay(props: {
 
 	local children: { [string]: any } = {}
 
-	children.HoverWireframe = e("WireframeHandleAdornment", {
-		Adornee = workspace.Terrain,
-		Color3 = HOVER_COLOR,
-		AlwaysOnTop = true,
-		ref = hoverRef,
+	-- Hover and selection highlights: cylinder sheaths around the rope.
+	children.HoverHighlight = e(PolylineAdornment, {
+		Points = props.HoverPolyline,
+		Color = HOVER_COLOR,
+		Radius = highlightRadius(props.HoverDiameter),
+		Transparency = 0.45,
 	})
 
-	children.SelectedWireframe = e("WireframeHandleAdornment", {
-		Adornee = workspace.Terrain,
-		Color3 = SELECTED_COLOR,
-		AlwaysOnTop = true,
-		ref = selectedRef,
+	children.SelectedHighlight = e(PolylineAdornment, {
+		Points = props.SelectedPolyline,
+		Color = SELECTED_COLOR,
+		Radius = highlightRadius(props.SelectedDiameter),
+		Transparency = 0.3,
 	})
 
+	-- Wireframe adornment for the Add preview curve and first-point cross.
 	children.AddPreviewWireframe = e("WireframeHandleAdornment", {
 		Adornee = workspace.Terrain,
 		Color3 = ADD_PREVIEW_COLOR,
