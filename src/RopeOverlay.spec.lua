@@ -24,9 +24,7 @@ return function(t: TestTypes.TestContext)
 			ReactRoblox.act(function()
 				root:render(e(RopeOverlay, {
 					HoverPolyline = { base, base + Vector3.new(4, -1, 0), base + Vector3.new(8, 0, 0) },
-					HoverDiameter = 0.3,
 					SelectedPolyline = { base + Vector3.new(0, 4, 0), base + Vector3.new(8, 4, 0) },
-					SelectedDiameter = 0.5,
 					AddFirstPoint = base + Vector3.new(0, 8, 0),
 					AddHoverPoint = base + Vector3.new(8, 8, 0),
 					AddHoverSnapped = true,

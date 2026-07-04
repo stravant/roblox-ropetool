@@ -188,7 +188,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- rope) no new discovery walk runs. The pick key is the first thing the
 	-- cursor ray/sphere met last frame ("none" for empty space).
 	local mHoverPolyline: { Vector3 }? = nil
-	local mHoverDiameter: number? = nil
 	local mHoverParts: { [BasePart]: boolean } = {}
 	local mHoverPickKey: any = nil
 	-- Cursor position at the last pick: an unchanged pick key only skips
@@ -777,7 +776,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		mHoverPickPos = nil
 		if mHoverPolyline ~= nil then
 			mHoverPolyline = nil
-			mHoverDiameter = nil
 			mHoverParts = {}
 			return true
 		end
@@ -874,7 +872,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			local changed = false
 			if rope and #rope.chainEdges >= 1 and not ropeIsSelected(rope) then
 				mHoverPolyline = RopeGraph.ropePolyline(rope)
-				mHoverDiameter = rope.diameter
 				mHoverParts = {}
 				for _, part in RopeGraph.ropeParts(rope) do
 					mHoverParts[part] = true
@@ -1484,9 +1481,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- Accessors for the UI/overlay
 	session.GetHoverPolyline = function(): { Vector3 }?
 		return mHoverPolyline
-	end
-	session.GetHoverDiameter = function(): number?
-		return mHoverDiameter
 	end
 	session.GetSelectedPolyline = function(): { Vector3 }?
 		local sel = mSelected
