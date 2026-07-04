@@ -18,9 +18,10 @@ local kMinAspect = 1.05
 -- Two segments chain when their endpoints are within this fraction of the
 -- (average) segment diameter of each other, floored for very thin ropes.
 -- Outer-joined segments (see buildRope) end d*sin(theta/2) apart at a bend of
--- angle theta, so this covers bends up to ~80 degrees per joint while staying
--- below the >= 1 diameter separation of touching parallel ropes.
-local kJoinToleranceFraction = 0.65
+-- angle theta, so this covers bends up to ~106 degrees per joint (the bottom
+-- of a rope whose sag far exceeds its span) while staying below the >= 1
+-- diameter separation of touching parallel ropes.
+local kJoinToleranceFraction = 0.8
 local kJoinToleranceFloor = 0.1
 
 -- Segment-count cap on a single discovery walk, so a pathological scene (e.g. a
@@ -35,21 +36,24 @@ local kRequiredMatches = 3
 
 local kCrossSectionTolerance = 0.25 -- relative
 
--- Chain-walk curvature limits, three rules:
--- * Absolute cap: a joint bending near 90 degrees breaks outright (a taut
---   rope meeting a post, a hard corner). Kept loose -- a very droopy coarse
---   rope's BOTTOM joint can legitimately bend ~70+ degrees.
--- * Magnitude spike: a joint bending far more than both its neighbour joints
---   is an attachment (a saggy rope hung on a matching post sits 90-theta off
---   the post, against nearly-straight neighbours). The droopy bottom joint
---   also out-bends its neighbours, but only by ~2.5x even at 4 segments, so
---   the factor of 3 spares it.
+-- Chain-walk curvature limits, three rules. The recurring distinction is
+-- SMOOTH CONTEXT: the bottom joint of a rope whose sag rivals or exceeds its
+-- span can legitimately bend 70-100+ degrees, but its neighbour joints bend
+-- substantially too (the curvature ramps up toward the bottom), while an
+-- attachment joint (a rope hung on a matching post) sits against a straight
+-- or missing side.
+-- * Absolute cap: a joint bending past ~80 degrees breaks -- UNLESS both its
+--   neighbours turn the same direction with substantial bends of their own
+--   (the droopy bottom).
+-- * Magnitude spike: a joint bending well past the floor whose quieter side
+--   is nearly straight, and far quieter than the joint, is an attachment.
 -- * Reversal: a joint whose turn DIRECTION opposes its neighbours' (by more
 --   than the floor, so numerical wobble doesn't count) is the meeting point
 --   of two separately-hung ropes -- e.g. the middle of a W.
 local kMaxJointBendRadians = math.rad(80)
 local kSpikeFloorRadians = math.rad(25)
 local kSpikeFactor = 3
+local kSmoothNeighborRadians = math.rad(15)
 local kMinReversalRadians = math.rad(10)
 
 -- The endpoint finder's pairwise continuation threshold (it has no chain
@@ -406,25 +410,43 @@ local function discoverRope(seedPart: Instance): Rope?
 			if not angle then
 				continue
 			end
-			if angle > kMaxJointBendRadians then
+			local rot = bendRots[j]
+			-- Smooth context: both neighbours turning the same direction with
+			-- substantial bends of their own -- the shape of a droopy bottom.
+			local prevAngle = bendAngles[j - 1]
+			local nextAngle = bendAngles[j + 1]
+			local prevRot = bendRots[j - 1]
+			local nextRot = bendRots[j + 1]
+			local smoothContext = prevAngle ~= nil
+				and nextAngle ~= nil
+				and prevAngle > kSmoothNeighborRadians
+				and nextAngle > kSmoothNeighborRadians
+				and rot:Dot(prevRot :: Vector3) > 0
+				and rot:Dot(nextRot :: Vector3) > 0
+			if angle > kMaxJointBendRadians and not smoothContext then
 				breakAt[j] = true
 				continue
 			end
-			-- Magnitude spike vs the neighbouring joints' turning.
-			local maxNeighborAngle = 0
+			-- Magnitude spike: a big bend whose quieter side is nearly
+			-- straight and far quieter than the joint (an attachment).
+			local minNeighborAngle = math.huge
 			local haveNeighbor = false
 			for _, k in { j - 1, j + 1 } do
 				local otherAngle = bendAngles[k]
 				if otherAngle then
 					haveNeighbor = true
-					maxNeighborAngle = math.max(maxNeighborAngle, otherAngle)
+					minNeighborAngle = math.min(minNeighborAngle, otherAngle)
 				end
 			end
-			if haveNeighbor and angle > kSpikeFloorRadians and angle > kSpikeFactor * maxNeighborAngle then
+			if
+				haveNeighbor
+				and angle > kSpikeFloorRadians
+				and minNeighborAngle < kSmoothNeighborRadians
+				and angle > kSpikeFactor * minNeighborAngle
+			then
 				breakAt[j] = true
 				continue
 			end
-			local rot = bendRots[j]
 			local reversesAll = false
 			for _, k in { j - 1, j + 1 } do
 				local otherRot = bendRots[k]

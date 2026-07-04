@@ -278,6 +278,46 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("workflow: a rope with sag far exceeding its span selects from ends and middle", function()
+		withSession(function(session, settings)
+			-- Sag triple the distance between the endpoints: the bottom joint
+			-- bends ~100 degrees, which must read as the curve continuing.
+			settings.Mode = "Add"
+			settings.Segments = 10
+			settings.Sag = 18
+			local a = kRegionCenter + Vector3.new(-3, 14, -8)
+			local b = a + Vector3.new(6, 0, 0)
+			session.AddClickAt(a)
+			session.AddClickAt(b)
+			local parts = findRopeParts()
+			t.expect(#parts).toBe(10)
+
+			local function partNearest(target: Vector3): BasePart
+				local best: BasePart? = nil
+				local bestDistance = math.huge
+				for _, p in parts do
+					local distance = (p.Position - target).Magnitude
+					if distance < bestDistance then
+						best = p
+						bestDistance = distance
+					end
+				end
+				return best :: BasePart
+			end
+
+			settings.Mode = "Move"
+			local bottom = a:Lerp(b, 0.5) - Vector3.new(0, 18, 0)
+			for _, seed in { partNearest(a), partNearest(b), partNearest(bottom) } do
+				session.Deselect()
+				t.expect(session.SelectRopeFromPart(seed)).toBeTruthy()
+				local info = session.GetSelectedInfo()
+				t.expect(info.Segments).toBe(10)
+				t.expect(selectionSpans(session, a, b, 0.05)).toBeTruthy()
+				t.expect(near(info.Sag, 18, 0.5)).toBeTruthy()
+			end
+		end)
+	end)
+
 	t.test("workflow: panel edits apply to the selected rope, then undo", function()
 		withSession(function(session, settings)
 			local parts = addStandardRope(session, settings)
