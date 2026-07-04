@@ -11,9 +11,18 @@
 -- the vertex at the part's -axis end and v2 the one at its +axis end, so a
 -- consumer can orient the part relative to the chain.
 
--- A part reads as a rope segment when its long axis exceeds its cross-section
--- by this factor (an ambiguous cube has no usable axis).
+-- A part with no square cross-section reads as a rope segment when its long
+-- axis exceeds its cross-section by this factor (an ambiguous cube has no
+-- usable axis).
 local kMinAspect = 1.05
+
+-- When a part HAS a square cross-section (two axes matching within this
+-- relative tolerance), the rope axis is the DISSIMILAR axis -- even when it
+-- is SHORTER than the cross: dense ropes have segments stubbier than their
+-- width. The stub ratio floor keeps plates and platforms (a 4x4x0.2 tile is
+-- "square" too) from reading as segments along their thin axis.
+local kSquareTolerance = 0.01
+local kMinStubRatio = 0.25
 
 -- Two segments chain when their endpoints are within this fraction of the
 -- (average) segment diameter of each other, floored for very thin ropes.
@@ -103,8 +112,15 @@ export type Rope = {
 	materialVariant: string,
 }
 
--- The long axis of a part, if it plausibly is a rope segment. Cylinders extend
--- along local X by definition; Blocks along their longest dimension.
+local function similarSizes(x: number, y: number): boolean
+	return math.abs(x - y) <= math.max(x, y) * kSquareTolerance
+end
+
+-- The rope axis of a part, if it plausibly is a rope segment. Cylinders
+-- extend along local X by definition. Blocks with a square cross-section run
+-- along the DISSIMILAR axis (which may be shorter than the cross, for dense
+-- stubby segments); blocks without one run along their longest dimension when
+-- sufficiently oblong.
 local function getSegmentInfo(instance: Instance): SegmentInfo?
 	if not instance:IsA("Part") then
 		return nil
@@ -121,9 +137,22 @@ local function getSegmentInfo(instance: Instance): SegmentInfo?
 		localAxis = Vector3.xAxis
 		length = size.X
 		cross1, cross2 = size.Y, size.Z
+		if length < math.max(cross1, cross2) * kMinStubRatio then
+			return nil -- a disc/wheel, not a segment
+		end
 	elseif part.Shape == Enum.PartType.Block then
 		kind = "Block"
-		if size.X >= size.Y and size.X >= size.Z then
+		-- Square cross-section: the dissimilar axis is the rope axis.
+		if similarSizes(size.Y, size.Z) and not similarSizes(size.X, (size.Y + size.Z) / 2) then
+			localAxis = Vector3.xAxis
+			length, cross1, cross2 = size.X, size.Y, size.Z
+		elseif similarSizes(size.X, size.Z) and not similarSizes(size.Y, (size.X + size.Z) / 2) then
+			localAxis = Vector3.yAxis
+			length, cross1, cross2 = size.Y, size.X, size.Z
+		elseif similarSizes(size.X, size.Y) and not similarSizes(size.Z, (size.X + size.Y) / 2) then
+			localAxis = Vector3.zAxis
+			length, cross1, cross2 = size.Z, size.X, size.Y
+		elseif size.X >= size.Y and size.X >= size.Z then
 			localAxis = Vector3.xAxis
 			length, cross1, cross2 = size.X, size.Y, size.Z
 		elseif size.Y >= size.X and size.Y >= size.Z then
@@ -133,10 +162,17 @@ local function getSegmentInfo(instance: Instance): SegmentInfo?
 			localAxis = Vector3.zAxis
 			length, cross1, cross2 = size.Z, size.X, size.Y
 		end
+		local maxCross = math.max(cross1, cross2)
+		if similarSizes(cross1, cross2) then
+			-- Square cross (or a near-cube that fell through): stubs allowed
+			-- down to the plate/platform floor, cubes are ambiguous.
+			if length < maxCross * kMinStubRatio or similarSizes(length, (cross1 + cross2) / 2) then
+				return nil
+			end
+		elseif length < maxCross * kMinAspect then
+			return nil
+		end
 	else
-		return nil
-	end
-	if length < math.max(cross1, cross2) * kMinAspect then
 		return nil
 	end
 	local axis = part.CFrame:VectorToWorldSpace(localAxis)
@@ -174,8 +210,16 @@ local function segmentsMatch(a: SegmentInfo, b: SegmentInfo): boolean
 	return matches >= kRequiredMatches
 end
 
+-- Fraction of the shorter segment's length capping the join tolerance: a
+-- tolerance reaching past a stubby segment's far end would let segments pair
+-- with a NEIGHBOURING joint instead of the shared one (dense ropes have
+-- joints spaced closer than the diameter-based tolerance).
+local kJoinToleranceLengthFraction = 0.45
+
 local function joinTolerance(a: SegmentInfo, b: SegmentInfo): number
-	return math.max(kJoinToleranceFloor, (a.diameter + b.diameter) / 2 * kJoinToleranceFraction)
+	local base = (a.diameter + b.diameter) / 2 * kJoinToleranceFraction
+	local lengthCap = math.min(a.length, b.length) * kJoinToleranceLengthFraction
+	return math.max(kJoinToleranceFloor, math.min(base, lengthCap))
 end
 
 -- Whether a part reads as a rope endcap: a sphere whose diameter roughly
@@ -239,15 +283,18 @@ local function discoverRope(seedPart: Instance): Rope?
 	-- make a new one. Linear scan: chains are capped small. Merged positions
 	-- are averaged: outer-joined segments (see buildRope) extend PAST the true
 	-- joint symmetrically, so the average of the two straddling endpoints
-	-- recovers the joint itself to second order.
-	local function resolveVertex(position: Vector3, tolerance: number): number
+	-- recovers the joint itself to second order. excludeId bars a specific
+	-- vertex from being merged onto (see addSegment).
+	local function resolveVertex(position: Vector3, tolerance: number, excludeId: number?): number
 		local bestId: number? = nil
 		local bestDist = tolerance
 		for id, v in vertices do
-			local dist = (v.position - position).Magnitude
-			if dist <= bestDist then
-				bestDist = dist
-				bestId = id
+			if id ~= excludeId then
+				local dist = (v.position - position).Magnitude
+				if dist <= bestDist then
+					bestDist = dist
+					bestId = id
+				end
 			end
 		end
 		if bestId then
@@ -261,10 +308,31 @@ local function discoverRope(seedPart: Instance): Rope?
 		return #vertices
 	end
 
+	local function nearestVertexDistance(position: Vector3): number
+		local best = math.huge
+		for _, v in vertices do
+			best = math.min(best, (v.position - position).Magnitude)
+		end
+		return best
+	end
+
 	local function addSegment(info: SegmentInfo): number
 		local tolerance = joinTolerance(info, info)
-		local v1 = resolveVertex(info.e1, tolerance)
-		local v2 = resolveVertex(info.e2, tolerance)
+		-- Stubby segments (dense ropes) can be SHORTER than the join
+		-- tolerance, so two guards keep the topology intact: the endpoint
+		-- sitting closest to an existing vertex resolves first (it is the one
+		-- actually joining the chain -- the other end could otherwise
+		-- greedily merge onto a NEIGHBOURING joint's vertex), and the second
+		-- endpoint is barred from collapsing onto the first's vertex.
+		local v1: number
+		local v2: number
+		if nearestVertexDistance(info.e2) < nearestVertexDistance(info.e1) then
+			v2 = resolveVertex(info.e2, tolerance)
+			v1 = resolveVertex(info.e1, tolerance, v2)
+		else
+			v1 = resolveVertex(info.e1, tolerance)
+			v2 = resolveVertex(info.e2, tolerance, v1)
+		end
 		table.insert(edges, { v1 = v1, v2 = v2, part = info.part })
 		local edgeId = #edges
 		table.insert(vertices[v1].edges, edgeId)

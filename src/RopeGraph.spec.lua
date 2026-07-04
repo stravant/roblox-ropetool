@@ -203,6 +203,53 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("dense ropes with segments shorter than their width discover fully", function()
+		withFolder(function(folder)
+			-- 24 segments over 6 studs at 0.5 diameter: each segment is
+			-- stubbier than it is wide, so the rope axis is the dissimilar
+			-- (shorter) axis, and joint vertices sit closer together than the
+			-- join tolerance.
+			for kindIndex, segmentType in { "Cylinder", "Box" } do
+				local a = kRegion + Vector3.new(0, 0, 60 + kindIndex * 30)
+				local b = a + Vector3.new(6, 0, 0)
+				local parts = buildRope({
+					PointA = a,
+					PointB = b,
+					Sag = 1,
+					Segments = 24,
+					SegmentType = segmentType,
+					Diameter = 0.5,
+					Parent = folder,
+				})
+				t.expect(#parts).toBe(24)
+				for _, seed in { parts[1], parts[12], parts[24] } do
+					local rope = RopeGraph.discoverRope(seed)
+					assert(rope)
+					t.expect(#rope.chainEdges).toBe(24)
+				end
+			end
+		end)
+	end)
+
+	t.test("plates and discs are not segments along their thin axis", function()
+		withFolder(function(folder)
+			local plate = Instance.new("Part")
+			plate.Size = Vector3.new(4, 0.2, 4)
+			plate.CFrame = CFrame.new(kRegion + Vector3.new(0, 0, -60))
+			plate.Anchored = true
+			plate.Parent = folder
+			t.expect(RopeGraph.getSegmentInfo(plate)).toBe(nil)
+
+			local disc = Instance.new("Part")
+			disc.Shape = Enum.PartType.Cylinder
+			disc.Size = Vector3.new(0.2, 4, 4)
+			disc.CFrame = CFrame.new(kRegion + Vector3.new(8, 0, -60))
+			disc.Anchored = true
+			disc.Parent = folder
+			t.expect(RopeGraph.getSegmentInfo(disc)).toBe(nil)
+		end)
+	end)
+
 	t.test("a very droopy rope stays one chain through its steep bottom joint", function()
 		withFolder(function(folder)
 			-- Sag comparable to the chord with few segments: the bottom joint
