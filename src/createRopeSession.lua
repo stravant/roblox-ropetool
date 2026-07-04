@@ -758,6 +758,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 			return true
 		end)
+		-- Hand the fresh rope straight to the Move tool for tweaking (the
+		-- usual add-then-adjust loop); off, Add stays active for batch adds.
+		if #builtParts > 0 and currentSettings.SelectAfterAdd then
+			currentSettings.Mode = "Move"
+			selectRopeFromPart(builtParts[1])
+		end
 		changeSignal:Fire()
 	end
 

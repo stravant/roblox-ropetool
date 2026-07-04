@@ -36,6 +36,7 @@ local function makeSettings(mode: string): Settings.RopeToolSettings
 		RopeEyedropper = "None",
 		SnapRopeEnds = true,
 		SnapGeometry = true,
+		SelectAfterAdd = true,
 		RecentMaterials = { "Fabric", "Plastic", "Metal" },
 		RecentColors = { { 0.412, 0.251, 0.157 } },
 	}

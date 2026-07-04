@@ -235,6 +235,34 @@ local function ModePanel(props: {
 	})
 end
 
+-- Options specific to the Add tool.
+local function AddOptionsPanel(props: {
+	Settings: Settings.RopeToolSettings,
+	UpdatedSettings: () -> (),
+	LayoutOrder: number?,
+})
+	return e(SubPanel, {
+		Title = "Add",
+		LayoutOrder = props.LayoutOrder,
+		Padding = UDim.new(0, 4),
+	}, {
+		SelectAfterAdd = e(HelpGui.WithHelpIcon, {
+			LayoutOrder = 1,
+			Subject = e(Checkbox, {
+				Label = "Select After Add",
+				Checked = props.Settings.SelectAfterAdd,
+				Changed = function(checked: boolean)
+					props.Settings.SelectAfterAdd = checked
+					props.UpdatedSettings()
+				end,
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "After building a rope, switch to <b>Move</b> with it selected, ready to tweak. Turn off to stay in Add and place several ropes in a row.",
+			}),
+		}),
+	})
+end
+
 -- The global Settings tab: options that aren't tied to a single editing mode.
 local function SnappingPanel(props: {
 	Settings: Settings.RopeToolSettings,
@@ -1214,6 +1242,11 @@ local function RopeToolGui(props: {
 				LayoutOrder = nextOrder(),
 			}),
 			RopePanel = showRope and e(RopePanel, {
+				Settings = currentSettings,
+				UpdatedSettings = props.UpdatedSettings,
+				LayoutOrder = nextOrder(),
+			}),
+			AddOptionsPanel = mode == "Add" and e(AddOptionsPanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),

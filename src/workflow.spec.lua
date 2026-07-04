@@ -33,6 +33,7 @@ local function makeSettings(): Settings.RopeToolSettings
 		RopeEyedropper = "None",
 		SnapRopeEnds = true,
 		SnapGeometry = true,
+		SelectAfterAdd = false,
 		RecentMaterials = { "Fabric", "Plastic", "Metal" },
 		RecentColors = { { 0.412, 0.251, 0.157 } },
 	}
@@ -166,6 +167,30 @@ return function(t: TestTypes.TestContext)
 			t.expect(info.Segments).toBe(10)
 			t.expect(near(info.Sag, 2, 0.05)).toBeTruthy()
 			t.expect(info.SegmentType).toBe("Cylinder")
+		end)
+	end)
+
+	t.test("select-after-add hands the new rope to the Move tool", function()
+		withSession(function(session, settings)
+			settings.Mode = "Add"
+			settings.SelectAfterAdd = true
+			session.AddClickAt(kPointA)
+			session.AddClickAt(kPointB)
+			-- The tool switched to Move with the fresh rope selected.
+			t.expect(settings.Mode).toBe("Move")
+			t.expect(session.HasSelection()).toBeTruthy()
+			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
+			t.expect(session.IsSagHandleShown()).toBeTruthy()
+
+			-- Off: Add stays active with no selection, for batch adds.
+			settings.SelectAfterAdd = false
+			settings.Mode = "Add"
+			task.wait() -- let the hover loop drop the selection on entering Add
+			session.AddClickAt(kPointA + Vector3.new(0, 6, 0))
+			session.AddClickAt(kPointB + Vector3.new(0, 6, 0))
+			t.expect(settings.Mode).toBe("Add")
+			t.expect(session.HasSelection()).toBeFalsy()
+			t.expect(#findRopeParts()).toBe(20)
 		end)
 	end)
 

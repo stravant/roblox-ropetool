@@ -9,6 +9,7 @@ export type RopeToolSettings = PluginGuiTypes.PluginGuiSettings & {
 	Mode: string, -- "Move" | "Add" | "Color" | "Settings"
 	SnapRopeEnds: boolean,
 	SnapGeometry: boolean,
+	SelectAfterAdd: boolean,
 	Segments: number,
 	SegmentType: string, -- "Box" | "Cylinder"
 	Sag: number,
@@ -41,6 +42,7 @@ local function loadSettings(plugin: Plugin): RopeToolSettings
 		Mode = raw.Mode or "Add",
 		SnapRopeEnds = if raw.SnapRopeEnds ~= nil then raw.SnapRopeEnds else true,
 		SnapGeometry = if raw.SnapGeometry ~= nil then raw.SnapGeometry else true,
+		SelectAfterAdd = if raw.SelectAfterAdd ~= nil then raw.SelectAfterAdd else true,
 		Segments = raw.Segments or 10,
 		SegmentType = raw.SegmentType or "Cylinder",
 		Sag = raw.Sag or 2,
@@ -69,6 +71,7 @@ local function saveSettings(plugin: Plugin, settings: RopeToolSettings)
 		Mode = settings.Mode,
 		SnapRopeEnds = settings.SnapRopeEnds,
 		SnapGeometry = settings.SnapGeometry,
+		SelectAfterAdd = settings.SelectAfterAdd,
 		Segments = settings.Segments,
 		SegmentType = settings.SegmentType,
 		Sag = settings.Sag,
