@@ -506,18 +506,35 @@ local function findRopeEndpointsNear(
 	end
 	local endpoints: { Vector3 } = {}
 	for _, info in infos do
-		for _, endpoint in { info.e1, info.e2 } do
+		for endIndex, endpoint in { info.e1, info.e2 } do
 			if (endpoint - position).Magnitude <= radius then
+				local infoFar = if endIndex == 1 then info.e2 else info.e1
 				local continued = false
 				for _, other in infos do
 					if other.part ~= info.part and segmentsMatch(info, other) then
 						local tolerance = joinTolerance(info, other)
-						if
-							math.min((other.e1 - endpoint).Magnitude, (other.e2 - endpoint).Magnitude)
-							<= tolerance
-						then
-							continued = true
-							break
+						local otherFar: Vector3? = nil
+						if (other.e1 - endpoint).Magnitude <= tolerance then
+							otherFar = other.e2
+						elseif (other.e2 - endpoint).Magnitude <= tolerance then
+							otherFar = other.e1
+						end
+						if otherFar then
+							-- Same smooth-continuation rule as the chain walk's
+							-- absolute cap: a steep joint is an ATTACHMENT (a
+							-- rope hung off a matching post), not the chain
+							-- continuing -- the endpoint stays snappable.
+							local incoming = endpoint - infoFar
+							local outgoing = (otherFar :: Vector3) - endpoint
+							if incoming.Magnitude > 0.001 and outgoing.Magnitude > 0.001 then
+								local du = incoming.Unit
+								local dv = outgoing.Unit
+								local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
+								if angle <= kMaxJointBendRadians then
+									continued = true
+									break
+								end
+							end
 						end
 					end
 				end

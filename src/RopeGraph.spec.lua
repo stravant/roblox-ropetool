@@ -203,6 +203,54 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("rope endpoints at a steep attachment stay snappable", function()
+		withFolder(function(folder)
+			local a = kRegion
+			local b = kRegion + Vector3.new(20, 0, 0)
+			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
+			buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 4,
+				Segments = 8,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				Parent = folder,
+				Props = props,
+			})
+			-- A property-matched post standing up from the rope's endpoint b.
+			-- Even though post and rope match and meet there, the steep joint
+			-- is an attachment, not a chain continuation: b must still be
+			-- reported as a rope endpoint (for snapping another rope onto it).
+			local post = Instance.new("Part")
+			post.Shape = Enum.PartType.Cylinder
+			post.Size = Vector3.new(8, 0.4, 0.4)
+			post.Color = Color3.new(1, 0, 0)
+			post.Material = Enum.Material.Fabric
+			post.Anchored = true
+			post.CFrame = CFrame.new(b + Vector3.new(0, 4, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+			post.Parent = folder
+
+			local foundB = false
+			for _, endpoint in RopeGraph.findRopeEndpointsNear(b, 3, nil) do
+				if (endpoint - b).Magnitude < 0.05 then
+					foundB = true
+				end
+			end
+			t.expect(foundB).toBeTruthy()
+
+			-- A smooth interior joint of the rope is still NOT an endpoint.
+			local mid = kRegion + Vector3.new(10, -4, 0)
+			local foundInterior = false
+			for _, endpoint in RopeGraph.findRopeEndpointsNear(mid, 1.5, nil) do
+				if (endpoint - mid).Magnitude < 0.5 then
+					foundInterior = true
+				end
+			end
+			t.expect(foundInterior).toBeFalsy()
+		end)
+	end)
+
 	t.test("parallel side-by-side ropes stay separate", function()
 		withFolder(function(folder)
 			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
