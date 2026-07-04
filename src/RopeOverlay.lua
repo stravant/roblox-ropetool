@@ -17,12 +17,12 @@ local ADD_PREVIEW_COLOR = Color3.fromRGB(50, 200, 50)
 local SNAP_MARKER_COLOR = Color3.fromRGB(50, 255, 50)
 local FREE_MARKER_COLOR = Color3.fromRGB(220, 220, 220)
 
--- The hover/selected highlight radius: a sheath slightly fatter than the
--- rope itself, so it reads clearly at any rope size (a 1px wireframe along
--- the center line gets lost -- unlike PolyMap's, it doesn't sit on any
--- natural part edge).
+-- The hover/selected highlight radius: an opaque always-on-top core line at
+-- half the rope's width, drawn along the center line -- reads clearly at any
+-- rope size without swallowing the rope (a 1px wireframe got lost; a fatter-
+-- than-the-rope sheath was too big).
 local function highlightRadius(diameter: number?): number
-	return (diameter or 0.3) * 0.7 + 0.05
+	return (diameter or 0.3) * 0.25
 end
 
 -- A polyline drawn as a chain of cylinders. Each segment is lengthened by
@@ -50,7 +50,7 @@ local function PolylineAdornment(props: {
 				Height = length + props.Radius,
 				Radius = props.Radius,
 				Color3 = props.Color,
-				Transparency = props.Transparency or 0.4,
+				Transparency = props.Transparency or 0,
 				AlwaysOnTop = true,
 				ZIndex = 0,
 			})
@@ -112,14 +112,12 @@ local function RopeOverlay(props: {
 		Points = props.HoverPolyline,
 		Color = HOVER_COLOR,
 		Radius = highlightRadius(props.HoverDiameter),
-		Transparency = 0.45,
 	})
 
 	children.SelectedHighlight = e(PolylineAdornment, {
 		Points = props.SelectedPolyline,
 		Color = SELECTED_COLOR,
 		Radius = highlightRadius(props.SelectedDiameter),
-		Transparency = 0.3,
 	})
 
 	-- Wireframe adornment for the Add preview curve and first-point cross.
