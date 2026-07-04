@@ -93,9 +93,10 @@ local function jointExtension(dirA: Vector3, dirB: Vector3, diameter: number): n
 end
 
 -- Build (or update in place) the chain of segment parts for a rope between two
--- points with the given sag. Returns the parts in chain order, plus the endcap
--- parts (empty unless HaveEndcaps and Cylinder mode).
-local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
+-- points with the given sag. Returns the parts in chain order, the endcap
+-- parts (empty unless HaveEndcaps and Cylinder mode), and the curve points
+-- (the rope's polyline, so callers don't recompute it).
+local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart }, { Vector3 })
 	local points = ropeCurve.computePoints(params.PointA, params.PointB, params.Sag, params.Segments, params.Sway)
 	local planeNormal = bendPlaneNormal(params.PointA, params.PointB, params.Sag, params.Sway or 0)
 	local existingParts = params.ExistingParts
@@ -216,7 +217,7 @@ local function buildRope(params: BuildRopeParams): ({ BasePart }, { BasePart })
 		end
 	end
 
-	return parts, caps
+	return parts, caps, points
 end
 
 return buildRope

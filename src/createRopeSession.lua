@@ -416,7 +416,8 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- reusing the existing parts (repositioned, not recreated) so per-frame
 	-- drag rebuilds are cheap and part identity is stable.
 	local function rebuildSelected(sel: SelectedRope)
-		sel.parts, sel.caps = buildRope({
+		local newPolyline: { Vector3 }
+		sel.parts, sel.caps, newPolyline = buildRope({
 			PointA = sel.pointA,
 			PointB = sel.pointB,
 			Sag = sel.sag,
@@ -436,7 +437,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		})
 		-- Box mode drops the caps even when requested; reflect what was built.
 		sel.haveEndcaps = #sel.caps > 0
-		sel.polyline = ropeCurve.computePoints(sel.pointA, sel.pointB, sel.sag, sel.segments, sel.sway)
+		sel.polyline = newPolyline
 	end
 
 	-- A single-part "rope" splits into segments only once it actually needs
@@ -821,7 +822,21 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return true
 	end
 
+	-- Stationary-cursor throttle for the per-frame hover update: the full
+	-- update raycasts (and in Add mode resolves snapping: bounds queries plus
+	-- part geometry extraction) every frame, which is all wasted while the
+	-- mouse rests. A periodic refresh still catches the scene changing under
+	-- a stationary cursor (an undo, another tool).
+	local kHoverRefreshFrames = 10
+	local mHoverLastCursor: Vector2? = nil
+	local mHoverLastMode: string? = nil
+	local mHoverLastEyedropper: string? = nil
+	local mHoverFramesSinceUpdate = 0
+
 	local function updateHover(screenPosOverride: Vector2?)
+		-- Mode-transition housekeeping runs every frame, un-throttled: it's
+		-- cheap, and skipping it on a stale mode snapshot could leave e.g. a
+		-- selection alive after switching into Add.
 		-- Leaving Add mode abandons the in-progress rope.
 		if currentSettings.Mode ~= "Add" and (mAddFirstPoint or mAddHoverPoint) then
 			clearAddState()
@@ -838,6 +853,24 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			if clearHover() then
 				changeSignal:Fire()
 			end
+		end
+
+		-- The expensive cursor work below is skipped while the mouse rests.
+		if screenPosOverride == nil then
+			local cursor = UserInputService:GetMouseLocation()
+			mHoverFramesSinceUpdate += 1
+			if
+				cursor == mHoverLastCursor
+				and currentSettings.Mode == mHoverLastMode
+				and currentSettings.RopeEyedropper == mHoverLastEyedropper
+				and mHoverFramesSinceUpdate < kHoverRefreshFrames
+			then
+				return
+			end
+			mHoverLastCursor = cursor
+			mHoverLastMode = currentSettings.Mode
+			mHoverLastEyedropper = currentSettings.RopeEyedropper
+			mHoverFramesSinceUpdate = 0
 		end
 
 		if mIsOverUI or mIsDraggingHandle or (queryMouseOverHandle ~= nil and queryMouseOverHandle()) then
@@ -1547,19 +1580,44 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	end
 	-- The preview polyline for the rope being added: from the anchored first
 	-- point to the hover point, with the current settings' sag/segments.
+	-- Cached on its inputs: this is read on every panel render, and a stable
+	-- table also lets the overlay skip redrawing an unchanged preview.
+	local mAddPreviewCache: {
+		a: Vector3,
+		b: Vector3,
+		sag: number,
+		sway: number,
+		segments: number,
+		points: { Vector3 },
+	}? = nil
 	session.GetAddPreviewPoints = function(): { Vector3 }?
 		local a = mAddFirstPoint
 		local b = mAddHoverPoint
 		if not a or not b or (b - a).Magnitude < 0.01 then
 			return nil
 		end
-		return ropeCurve.computePoints(
-			a,
-			b,
-			currentSettings.Sag,
-			math.max(1, math.round(currentSettings.Segments)),
-			currentSettings.Sway
-		)
+		local segments = math.max(1, math.round(currentSettings.Segments))
+		local cache = mAddPreviewCache
+		if
+			cache
+			and cache.a == a
+			and cache.b == b
+			and cache.sag == currentSettings.Sag
+			and cache.sway == currentSettings.Sway
+			and cache.segments == segments
+		then
+			return cache.points
+		end
+		local points = ropeCurve.computePoints(a, b, currentSettings.Sag, segments, currentSettings.Sway)
+		mAddPreviewCache = {
+			a = a,
+			b = b,
+			sag = currentSettings.Sag,
+			sway = currentSettings.Sway,
+			segments = segments,
+			points = points,
+		}
+		return points
 	end
 
 	-- Actions / programmatic drivers (used by tests and scriptability)

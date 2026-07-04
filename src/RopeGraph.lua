@@ -605,6 +605,12 @@ end
 -- the collection and chain-endness can be decided in memory.
 -- excludeParts (e.g. the rope being dragged) contribute neither endpoints nor
 -- continuations.
+--
+-- This runs per hover frame in Add mode, so the continuation checks go
+-- through a coarse spatial grid over the collected endpoints rather than an
+-- O(n^2) all-pairs scan (a couple of dense ropes near the cursor collect
+-- hundreds of segments).
+type EndpointEntry = { index: number, position: Vector3, far: Vector3 }
 local function findRopeEndpointsNear(
 	position: Vector3,
 	radius: number,
@@ -621,41 +627,80 @@ local function findRopeEndpointsNear(
 			end
 		end
 	end
-	local endpoints: { Vector3 } = {}
+
+	-- Bucket every endpoint by a grid whose cell size is the largest self
+	-- tolerance present. Any PAIR tolerance is bounded by the larger of the
+	-- two segments' self tolerances, so a continuation partner is always in
+	-- the endpoint's own or an adjacent cell.
+	local cellSize = kJoinToleranceFloor
 	for _, info in infos do
+		cellSize = math.max(cellSize, joinTolerance(info, info))
+	end
+	local grid: { [Vector3]: { EndpointEntry } } = {}
+	local function cellKey(p: Vector3): Vector3
+		return Vector3.new(math.floor(p.X / cellSize), math.floor(p.Y / cellSize), math.floor(p.Z / cellSize))
+	end
+	for index, info in infos do
 		for endIndex, endpoint in { info.e1, info.e2 } do
-			if (endpoint - position).Magnitude <= radius then
-				local infoFar = if endIndex == 1 then info.e2 else info.e1
-				local continued = false
-				for _, other in infos do
-					if other.part ~= info.part and segmentsMatch(info, other) then
-						local tolerance = joinTolerance(info, other)
-						local otherFar: Vector3? = nil
-						if (other.e1 - endpoint).Magnitude <= tolerance then
-							otherFar = other.e2
-						elseif (other.e2 - endpoint).Magnitude <= tolerance then
-							otherFar = other.e1
-						end
-						if otherFar then
-							-- Same smooth-continuation rule as the chain walk's
-							-- absolute cap: a steep joint is an ATTACHMENT (a
-							-- rope hung off a matching post), not the chain
-							-- continuing -- the endpoint stays snappable.
-							local incoming = endpoint - infoFar
-							local outgoing = (otherFar :: Vector3) - endpoint
-							if incoming.Magnitude > 0.001 and outgoing.Magnitude > 0.001 then
-								local du = incoming.Unit
-								local dv = outgoing.Unit
-								local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
-								if angle <= kMaxContinuationBendRadians then
-									continued = true
-									break
+			local key = cellKey(endpoint)
+			local bucket = grid[key]
+			if not bucket then
+				bucket = {}
+				grid[key] = bucket
+			end
+			table.insert(bucket, {
+				index = index,
+				position = endpoint,
+				far = if endIndex == 1 then info.e2 else info.e1,
+			})
+		end
+	end
+
+	-- Whether a matching segment smoothly continues the chain at `endpoint`
+	-- (same rule as the chain walk's absolute cap: a steep joint is an
+	-- ATTACHMENT, e.g. a rope hung off a matching post, and the endpoint
+	-- stays snappable).
+	local function hasContinuation(index: number, endpoint: Vector3, infoFar: Vector3): boolean
+		local info = infos[index]
+		local base = cellKey(endpoint)
+		for dx = -1, 1 do
+			for dy = -1, 1 do
+				for dz = -1, 1 do
+					local bucket = grid[base + Vector3.new(dx, dy, dz)]
+					if bucket then
+						for _, entry in bucket do
+							if entry.index ~= index then
+								local other = infos[entry.index]
+								if
+									(entry.position - endpoint).Magnitude <= joinTolerance(info, other)
+									and segmentsMatch(info, other)
+								then
+									local incoming = endpoint - infoFar
+									local outgoing = entry.far - endpoint
+									if incoming.Magnitude > 0.001 and outgoing.Magnitude > 0.001 then
+										local du = incoming.Unit
+										local dv = outgoing.Unit
+										local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
+										if angle <= kMaxContinuationBendRadians then
+											return true
+										end
+									end
 								end
 							end
 						end
 					end
 				end
-				if not continued then
+			end
+		end
+		return false
+	end
+
+	local endpoints: { Vector3 } = {}
+	for index, info in infos do
+		for endIndex, endpoint in { info.e1, info.e2 } do
+			if (endpoint - position).Magnitude <= radius then
+				local infoFar = if endIndex == 1 then info.e2 else info.e1
+				if not hasContinuation(index, endpoint, infoFar) then
 					table.insert(endpoints, endpoint)
 				end
 			end

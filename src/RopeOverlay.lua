@@ -87,6 +87,9 @@ local function RopeOverlay(props: {
 		end)
 	end
 
+	-- Each wireframe redraws only when its polyline actually changes (the
+	-- session hands out stable tables, replaced on real changes), not on
+	-- every unrelated re-render.
 	local hoverPolyline = props.HoverPolyline
 	React.useEffect(function()
 		local wire = hoverRef.current :: WireframeHandleAdornment?
@@ -102,7 +105,7 @@ local function RopeOverlay(props: {
 				wire:Clear()
 			end
 		end
-	end)
+	end, { hoverPolyline or false } :: { any })
 
 	local selectedPolyline = props.SelectedPolyline
 	React.useEffect(function()
@@ -119,7 +122,7 @@ local function RopeOverlay(props: {
 				wire:Clear()
 			end
 		end
-	end)
+	end, { selectedPolyline or false } :: { any })
 
 	local addPreviewPoints = props.AddPreviewPoints
 	local addFirstPoint = props.AddFirstPoint
@@ -140,7 +143,7 @@ local function RopeOverlay(props: {
 				wire:Clear()
 			end
 		end
-	end)
+	end, { addFirstPoint or false, addPreviewPoints or false } :: { any })
 
 	local children: { [string]: any } = {}
 
