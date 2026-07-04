@@ -532,6 +532,34 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("a direct hit on an oblong part beats nearby bigger ropes", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings) -- significant rope at Z = 0
+			-- A clearly rope-like stick right in front of the rope (toward the
+			-- camera), well inside the leniency sphere radius.
+			local stick = Instance.new("Part")
+			stick.Size = Vector3.new(6, 0.4, 0.4)
+			stick.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 8, 1.5))
+			stick.Anchored = true
+			stick.Parent = workspace
+
+			settings.Mode = "Move"
+			local camera = workspace.CurrentCamera
+			assert(camera)
+			-- Aim dead-on at the stick: pointing directly at a convincingly
+			-- oblong part selects it, even though a significant rope is nearby.
+			local screen = camera:WorldToViewportPoint(stick.Position)
+			t.expect(session.DebugSelectAt(Vector2.new(screen.X, screen.Y))).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(1)
+			t.expect(selectionSpans(
+				session,
+				stick.Position - Vector3.new(3, 0, 0),
+				stick.Position + Vector3.new(3, 0, 0),
+				0.05
+			)).toBeTruthy()
+		end)
+	end)
+
 	t.test("hover re-picks when the cursor moves onto a nearer rope", function()
 		withSession(function(session, settings)
 			addStandardRope(session, settings) -- rope 1 at Z = 0

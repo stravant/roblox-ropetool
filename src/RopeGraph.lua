@@ -54,6 +54,9 @@ export type SegmentInfo = {
 	axis: Vector3, -- unit, world space, along the long axis
 	length: number,
 	diameter: number, -- average of the two cross-section dimensions
+	-- Oblong-ness: length over the LARGEST cross dimension. A rope-like stick
+	-- scores high; a barely-elongated slab scores near 1.
+	aspect: number,
 	e1: Vector3, -- endpoint at the -axis end
 	e2: Vector3, -- endpoint at the +axis end
 }
@@ -132,6 +135,7 @@ local function getSegmentInfo(instance: Instance): SegmentInfo?
 		axis = axis,
 		length = length,
 		diameter = (cross1 + cross2) / 2,
+		aspect = length / math.max(cross1, cross2, 0.001),
 		e1 = center - halfSpan,
 		e2 = center + halfSpan,
 	}

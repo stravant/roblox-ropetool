@@ -305,23 +305,36 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return selectRope(rope)
 	end
 
-	-- Selection leniency: the rope pick shared by hover and click. A direct
-	-- raycast hit on a significant rope (>= kSignificantSegments) wins
-	-- unambiguously. Otherwise the pick DRILLS through everything in the
-	-- cursor's sphere corridor -- excluding each hit and casting again, not
-	-- stopping at the first plausible thing -- collecting every distinct rope,
-	-- then takes the significant rope whose polyline passes closest to the
-	-- cursor ray. So with several ropes near each other the one the user is
-	-- actually pointing at wins, not whichever surface the sweep met first.
-	-- With no significant candidate the direct hit keeps priority (a click on
-	-- a bare stick selects it), then the nearest small candidate.
+	-- Selection leniency: the rope pick shared by hover and click. A "good"
+	-- direct raycast hit wins unambiguously: either a significant rope
+	-- (>= kSignificantSegments) or a chain containing a convincingly OBLONG
+	-- part (a stick/post is clearly what the user is pointing at, even as a
+	-- 1-segment chain). Only when the direct hit is nothing, or a barely-
+	-- elongated slab that merely passes the segment check, does the pick
+	-- DRILL through everything in the cursor's sphere corridor -- excluding
+	-- each hit and casting again -- collecting every distinct rope, then take
+	-- the significant rope whose polyline passes closest to the cursor ray.
+	-- With no significant candidate the direct hit keeps priority, then the
+	-- nearest small candidate.
 	local kSignificantSegments = 3
 	local kMaxSphereDrills = 8
+	-- Length at least this many times the widest cross dimension reads as
+	-- genuinely rope-like rather than a generic elongated part.
+	local kOblongAspect = 4
+	local function ropeIsOblong(rope: RopeGraph.Rope): boolean
+		for _, part in RopeGraph.ropeParts(rope) do
+			local info = RopeGraph.getSegmentInfo(part)
+			if info and info.aspect >= kOblongAspect then
+				return true
+			end
+		end
+		return false
+	end
 	local function pickRopeAt(screenPos: Vector2?): (RopeGraph.Rope?, BasePart?)
 		local result = mouseRaycast(screenPos)
 		local directPart = if result and result.Instance:IsA("BasePart") then result.Instance :: BasePart else nil
 		local directRope = if directPart then RopeGraph.discoverRope(directPart) else nil
-		if directRope and #directRope.chainEdges >= kSignificantSegments then
+		if directRope and (#directRope.chainEdges >= kSignificantSegments or ropeIsOblong(directRope)) then
 			return directRope, directPart
 		end
 		local camera = workspace.CurrentCamera
