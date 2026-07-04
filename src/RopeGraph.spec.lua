@@ -203,6 +203,29 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("a very droopy rope stays one chain through its steep bottom joint", function()
+		withFolder(function(folder)
+			-- Sag comparable to the chord with few segments: the bottom joint
+			-- bends ~74 degrees -- far past any tight absolute cap, but
+			-- consistent with its neighbours (~29 degrees, under the spike
+			-- factor), so the chain must hold together.
+			local a = kRegion + Vector3.new(0, 10, 60)
+			local b = a + Vector3.new(8, 0, 0)
+			local parts = buildRope({
+				PointA = a,
+				PointB = b,
+				Sag = 6,
+				Segments = 4,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				Parent = folder,
+			})
+			local rope = RopeGraph.discoverRope(parts[2])
+			assert(rope)
+			t.expect(#rope.chainEdges).toBe(4)
+		end)
+	end)
+
 	t.test("rope endpoints at a steep attachment stay snappable", function()
 		withFolder(function(folder)
 			local a = kRegion

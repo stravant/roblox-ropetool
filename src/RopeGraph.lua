@@ -35,18 +35,27 @@ local kRequiredMatches = 3
 
 local kCrossSectionTolerance = 0.25 -- relative
 
--- Chain-walk curvature limits. A joint bending more than the absolute cap
--- breaks the chain outright: a sharp corner is an attachment (e.g. a rope
--- meeting the end of a post -- the post sits 90-theta degrees off the rope's
--- end tangent, ~50 degrees for a saggy rope) or two ropes meeting in a V,
--- not part of one curve. Kept above the ~25-30 degree per-joint bends of a
--- legitimately coarse deep-sag rope. Below the cap, a joint whose turn
--- DIRECTION reverses against the consistent turning of its neighbour joints
--- (by more than the floor, so numerical wobble on near-straight chains
--- doesn't count) is the meeting point of two separately-hung ropes -- e.g.
--- the middle of a W -- and breaks the chain too.
-local kMaxJointBendRadians = math.rad(45)
+-- Chain-walk curvature limits, three rules:
+-- * Absolute cap: a joint bending near 90 degrees breaks outright (a taut
+--   rope meeting a post, a hard corner). Kept loose -- a very droopy coarse
+--   rope's BOTTOM joint can legitimately bend ~70+ degrees.
+-- * Magnitude spike: a joint bending far more than both its neighbour joints
+--   is an attachment (a saggy rope hung on a matching post sits 90-theta off
+--   the post, against nearly-straight neighbours). The droopy bottom joint
+--   also out-bends its neighbours, but only by ~2.5x even at 4 segments, so
+--   the factor of 3 spares it.
+-- * Reversal: a joint whose turn DIRECTION opposes its neighbours' (by more
+--   than the floor, so numerical wobble doesn't count) is the meeting point
+--   of two separately-hung ropes -- e.g. the middle of a W.
+local kMaxJointBendRadians = math.rad(80)
+local kSpikeFloorRadians = math.rad(25)
+local kSpikeFactor = 3
 local kMinReversalRadians = math.rad(10)
+
+-- The endpoint finder's pairwise continuation threshold (it has no chain
+-- context for the spike rule): a matching segment bending off by more than
+-- this is an attachment, so the shared point stays a snap target.
+local kMaxContinuationBendRadians = math.rad(45)
 
 export type SegmentInfo = {
 	part: BasePart,
@@ -401,6 +410,20 @@ local function discoverRope(seedPart: Instance): Rope?
 				breakAt[j] = true
 				continue
 			end
+			-- Magnitude spike vs the neighbouring joints' turning.
+			local maxNeighborAngle = 0
+			local haveNeighbor = false
+			for _, k in { j - 1, j + 1 } do
+				local otherAngle = bendAngles[k]
+				if otherAngle then
+					haveNeighbor = true
+					maxNeighborAngle = math.max(maxNeighborAngle, otherAngle)
+				end
+			end
+			if haveNeighbor and angle > kSpikeFloorRadians and angle > kSpikeFactor * maxNeighborAngle then
+				breakAt[j] = true
+				continue
+			end
 			local rot = bendRots[j]
 			local reversesAll = false
 			for _, k in { j - 1, j + 1 } do
@@ -534,7 +557,7 @@ local function findRopeEndpointsNear(
 								local du = incoming.Unit
 								local dv = outgoing.Unit
 								local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
-								if angle <= kMaxJointBendRadians then
+								if angle <= kMaxContinuationBendRadians then
 									continued = true
 									break
 								end
