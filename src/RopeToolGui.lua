@@ -192,17 +192,6 @@ local function ModePanel(props: {
 		})
 	end
 
-	-- A blank 1/3-width slot so a row's remaining chips stay column-aligned.
-	local function emptySlot(order: number)
-		return e("Frame", {
-			Size = UDim2.new(0, 0, 0, 24),
-			BackgroundTransparency = 1,
-			LayoutOrder = order,
-		}, {
-			Flex = e("UIFlexItem", { FlexMode = Enum.UIFlexMode.Grow }),
-		})
-	end
-
 	local function row(order: number, children: { [string]: any })
 		children.ListLayout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
@@ -225,12 +214,10 @@ local function ModePanel(props: {
 		Row1 = row(1, {
 			Move = modeChip("Move", "Move", 1),
 			Add = modeChip("Add", "Add", 2),
-			Color = modeChip("Color", "Color", 3),
 		}),
 		Row2 = row(2, {
-			SettingsChip = modeChip("Settings", "Settings", 1),
-			Empty1 = emptySlot(2),
-			Empty2 = emptySlot(3),
+			Color = modeChip("Color", "Color", 1),
+			SettingsChip = modeChip("Settings", "Settings", 2),
 		}),
 	})
 end
