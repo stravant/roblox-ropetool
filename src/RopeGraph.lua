@@ -33,6 +33,16 @@ local kMinStubRatio = 0.25
 local kJoinToleranceFraction = 0.8
 local kJoinToleranceFloor = 0.1
 
+-- A LONE part -- a 1-segment chain with no endcaps vouching for it -- must
+-- look convincingly stick-like BY ITSELF to read as a rope: at least this
+-- oblong (length over the largest cross dimension), with its two cross
+-- dimensions within this ratio of each other (near-square). The permissive
+-- thresholds above are for parts joining a chain, where the neighbours are
+-- the evidence of ropehood; a merely-elongated part standing alone (a plank,
+-- a door, a wall) is just a part, not a 1-segment "rope".
+local kLonePartMinAspect = 4
+local kLonePartMaxCrossRatio = 1.25
+
 -- Segment-count cap on a single discovery walk, so a pathological scene (e.g. a
 -- huge grid of matching parts) can't hang the hover update.
 local kMaxChainParts = 500
@@ -79,6 +89,9 @@ export type SegmentInfo = {
 	-- Oblong-ness: length over the LARGEST cross dimension. A rope-like stick
 	-- scores high; a barely-elongated slab scores near 1.
 	aspect: number,
+	-- Cross-section squareness: the larger cross dimension over the smaller.
+	-- 1 for a square/round cross; large for flat ones (a plank's).
+	crossRatio: number,
 	e1: Vector3, -- endpoint at the -axis end
 	e2: Vector3, -- endpoint at the +axis end
 }
@@ -185,6 +198,7 @@ local function getSegmentInfo(instance: Instance): SegmentInfo?
 		length = length,
 		diameter = (cross1 + cross2) / 2,
 		aspect = length / math.max(cross1, cross2, 0.001),
+		crossRatio = math.max(cross1, cross2) / math.max(math.min(cross1, cross2), 0.001),
 		e1 = center - halfSpan,
 		e2 = center + halfSpan,
 	}
@@ -581,6 +595,15 @@ local function discoverRope(seedPart: Instance): Rope?
 				table.insert(caps, candidate)
 				break -- one cap per end
 			end
+		end
+	end
+
+	-- The lone-part gate (see kLonePartMinAspect): a chain of just the seed,
+	-- with no endcaps vouching for it, is only a rope when the part is
+	-- convincingly stick-like on its own.
+	if #chainEdges == 1 and #caps == 0 then
+		if seedInfo.aspect < kLonePartMinAspect or seedInfo.crossRatio > kLonePartMaxCrossRatio then
+			return nil
 		end
 	end
 

@@ -342,8 +342,8 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	-- direct raycast hit wins unambiguously: either a significant rope
 	-- (>= kSignificantSegments) or a chain containing a convincingly OBLONG
 	-- part (a stick/post is clearly what the user is pointing at, even as a
-	-- 1-segment chain). Only when the direct hit is nothing, or a barely-
-	-- elongated slab that merely passes the segment check, does the pick
+	-- 1-segment chain; lone parts short of that don't discover as ropes at
+	-- all). Only when the direct hit yields no such rope does the pick
 	-- DRILL through everything in the cursor's sphere corridor -- excluding
 	-- each hit and casting again -- collecting every distinct rope, then take
 	-- the significant rope whose polyline passes closest to the cursor ray.

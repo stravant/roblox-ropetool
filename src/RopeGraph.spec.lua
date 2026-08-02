@@ -321,6 +321,79 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("lone parts must be convincingly stick-like to read as 1-part ropes", function()
+		withFolder(function(folder)
+			local function makeLone(size: Vector3, offset: Vector3): Part
+				local part = Instance.new("Part")
+				part.Size = size
+				part.CFrame = CFrame.new(kRegion + offset)
+				part.Anchored = true
+				part.Parent = folder
+				return part
+			end
+
+			-- A stick (very oblong, square cross) is a 1-part rope.
+			local stick = makeLone(Vector3.new(6, 0.4, 0.4), Vector3.new(0, 0, -100))
+			local stickRope = RopeGraph.discoverRope(stick)
+			assert(stickRope)
+			t.expect(#stickRope.chainEdges).toBe(1)
+
+			-- A plank has the length but a flat cross-section: not a rope.
+			t.expect(RopeGraph.discoverRope(makeLone(Vector3.new(8, 2, 0.5), Vector3.new(15, 0, -100)))).toBe(nil)
+
+			-- A barely-elongated slab (a wall) has neither: not a rope.
+			t.expect(RopeGraph.discoverRope(makeLone(Vector3.new(10, 9, 1), Vector3.new(35, 0, -100)))).toBe(nil)
+
+			-- A square-cross beam that isn't oblong enough: not a rope.
+			t.expect(RopeGraph.discoverRope(makeLone(Vector3.new(3, 1, 1), Vector3.new(55, 0, -100)))).toBe(nil)
+		end)
+	end)
+
+	t.test("endcaps vouch for a lone stubby segment", function()
+		withFolder(function(folder)
+			-- A 1-segment capped rope too stubby for the lone-part gate on its
+			-- own (aspect 2.5): the matching sphere caps mark it as a built
+			-- rope, so it stays discoverable (e.g. for reselection).
+			local a = kRegion + Vector3.new(0, 0, -130)
+			local parts, caps = buildRope({
+				PointA = a,
+				PointB = a + Vector3.new(1, 0, 0),
+				Sag = 0,
+				Segments = 1,
+				SegmentType = "Cylinder",
+				Diameter = 0.4,
+				HaveEndcaps = true,
+				Parent = folder,
+			})
+			t.expect(#parts).toBe(1)
+			t.expect(#caps).toBe(2)
+			local rope = RopeGraph.discoverRope(parts[1])
+			assert(rope)
+			t.expect(#rope.chainEdges).toBe(1)
+			t.expect(#rope.caps).toBe(2)
+		end)
+	end)
+
+	t.test("plank-like parts still chain into multi-part ropes", function()
+		withFolder(function(folder)
+			-- Two matching planks end to end: each fails the lone-part gate by
+			-- itself, but as a CHAIN the adjacency is the evidence of ropehood,
+			-- so the permissive segment thresholds still apply.
+			local plank1 = Instance.new("Part")
+			plank1.Size = Vector3.new(8, 2, 0.5)
+			plank1.CFrame = CFrame.new(kRegion + Vector3.new(0, 0, -160))
+			plank1.Anchored = true
+			plank1.Parent = folder
+			local plank2 = plank1:Clone()
+			plank2.CFrame = CFrame.new(kRegion + Vector3.new(8, 0, -160))
+			plank2.Parent = folder
+
+			local rope = RopeGraph.discoverRope(plank1)
+			assert(rope)
+			t.expect(#rope.chainEdges).toBe(2)
+		end)
+	end)
+
 	t.test("parallel side-by-side ropes stay separate", function()
 		withFolder(function(folder)
 			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
