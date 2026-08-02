@@ -163,6 +163,9 @@ return function(plugin: Plugin, panel: DockWidgetPluginGui, buttonClicked: Signa
 		destroySession()
 		setActive(false)
 		destroyReactRoot()
+		-- The one and only settings save, deliberately: the settings are
+		-- relatively transient, so one write at shutdown beats writing on
+		-- every edit (a hard Studio crash losing them is acceptable).
 		Settings.Save(plugin, activeSettings)
 		clickedCn:Disconnect()
 	end)

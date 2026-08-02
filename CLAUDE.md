@@ -66,7 +66,10 @@ Three-layer design:
 
 2. **Settings layer** — Persistent configuration via `plugin:GetSetting`/`SetSetting`.
    - `src/Settings.lua` — Settings key `"ropeToolState"`. Stores mode, segments, segment type,
-     sag, sway, diameter, endcaps, rope color/material, recent colors/materials.
+     grouping, sag, sway, diameter, endcaps, rope color/material, recent colors/materials.
+   - Settings are saved only once, on `plugin.Unloading` (see `src/main.lua`). This is
+     intentional: the settings are relatively transient, so saving once at shutdown is
+     preferable to writing on every edit — losing them to a hard Studio crash is acceptable.
 
 3. **UI layer** — React components.
    - `src/RopeToolGui.lua` — Main settings panel: mode chips, rope parameters, and the
