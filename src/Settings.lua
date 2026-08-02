@@ -12,6 +12,7 @@ export type RopeToolSettings = PluginGuiTypes.PluginGuiSettings & {
 	SelectAfterAdd: boolean,
 	Segments: number,
 	SegmentType: string, -- "Box" | "Cylinder"
+	Grouping: string, -- "Model" | "Folder" | "None"
 	Sag: number,
 	Sway: number,
 	Diameter: number,
@@ -45,6 +46,7 @@ local function loadSettings(plugin: Plugin): RopeToolSettings
 		SelectAfterAdd = if raw.SelectAfterAdd ~= nil then raw.SelectAfterAdd else true,
 		Segments = raw.Segments or 10,
 		SegmentType = raw.SegmentType or "Cylinder",
+		Grouping = raw.Grouping or "Folder",
 		Sag = raw.Sag or 2,
 		Sway = raw.Sway or 0,
 		Diameter = raw.Diameter or 0.3,
@@ -74,6 +76,7 @@ local function saveSettings(plugin: Plugin, settings: RopeToolSettings)
 		SelectAfterAdd = settings.SelectAfterAdd,
 		Segments = settings.Segments,
 		SegmentType = settings.SegmentType,
+		Grouping = settings.Grouping,
 		Sag = settings.Sag,
 		Sway = settings.Sway,
 		Diameter = settings.Diameter,

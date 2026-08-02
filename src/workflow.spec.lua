@@ -23,6 +23,7 @@ local function makeSettings(): Settings.RopeToolSettings
 		Mode = "Add",
 		Segments = 10,
 		SegmentType = "Cylinder",
+		Grouping = "Folder",
 		Sag = 2,
 		Sway = 0,
 		Diameter = 0.3,
@@ -62,7 +63,7 @@ return function(t: TestTypes.TestContext)
 			end
 		end
 		for _, c in workspace:GetChildren() do
-			if c:IsA("Folder") and c.Name == "Rope" and #c:GetChildren() == 0 then
+			if (c:IsA("Folder") or c:IsA("Model")) and c.Name == "Rope" and #c:GetChildren() == 0 then
 				c:Destroy()
 			end
 		end
@@ -884,6 +885,188 @@ return function(t: TestTypes.TestContext)
 			session.DebugEscape()
 			t.expect(session.GetAddFirstPoint()).toBe(nil)
 			t.expect(#findRopeParts()).toBe(0)
+		end)
+	end)
+
+	t.test("the Grouping setting picks the Add tool's container", function()
+		withSession(function(session, settings)
+			-- Model: the new rope's parts live in their own Model named Rope.
+			settings.Mode = "Add"
+			settings.Grouping = "Model"
+			session.AddClickAt(kPointA)
+			session.AddClickAt(kPointB)
+			local parts = findRopeParts()
+			t.expect(#parts).toBe(10)
+			local model = parts[1].Parent
+			assert(model)
+			t.expect(model:IsA("Model")).toBeTruthy()
+			t.expect(model.Name).toBe("Rope")
+			for _, p in parts do
+				t.expect(p.Parent).toBe(model)
+			end
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(#findRopeParts()).toBe(0)
+
+			-- None: the parts sit directly in workspace, no container made.
+			settings.Grouping = "None"
+			session.AddClickAt(kPointA)
+			session.AddClickAt(kPointB)
+			parts = findRopeParts()
+			t.expect(#parts).toBe(10)
+			for _, p in parts do
+				t.expect(p.Parent).toBe(workspace)
+			end
+			-- One undo still removes the whole rope.
+			ChangeHistoryService:Undo()
+			settle()
+			t.expect(#findRopeParts()).toBe(0)
+		end)
+	end)
+
+	t.test("selecting a rope shows its guessed grouping", function()
+		withSession(function(session, settings)
+			-- The standard rope is added under a Folder (the default setting).
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			settings.Grouping = "None" -- a stale panel value; the guess overrides it
+			t.expect(session.SelectRopeFromPart(parts[1])).toBeTruthy()
+			t.expect(settings.Grouping).toBe("Folder")
+			t.expect(session.GetSelectedInfo().Grouping).toBe("Folder")
+
+			-- A rope built loose in workspace guesses None.
+			local loose = buildRope({
+				PointA = kPointA + Vector3.new(0, 8, 0),
+				PointB = kPointB + Vector3.new(0, 8, 0),
+				Sag = 2,
+				Segments = 10,
+				SegmentType = "Cylinder",
+				Diameter = 0.3,
+				Parent = workspace,
+			})
+			t.expect(session.SelectRopeFromPart(loose[1])).toBeTruthy()
+			t.expect(settings.Grouping).toBe("None")
+
+			-- A container shared with an unrelated child isn't the rope's own
+			-- group: the guess falls back to None (so regrouping never has to
+			-- disturb the stranger).
+			local folder = parts[1].Parent
+			assert(folder)
+			local stranger = Instance.new("Part")
+			stranger.Anchored = true
+			stranger.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, -5, 0))
+			stranger.Parent = folder
+			t.expect(session.SelectRopeFromPart(parts[1])).toBeTruthy()
+			t.expect(settings.Grouping).toBe("None")
+		end)
+	end)
+
+	t.test("changing the Grouping setting regroups the selected rope", function()
+		withSession(function(session, settings)
+			settings.HaveEndcaps = true
+			local parts = addStandardRope(session, settings)
+			settings.Mode = "Move"
+			t.expect(session.SelectRopeFromPart(parts[1])).toBeTruthy()
+			t.expect(settings.Grouping).toBe("Folder")
+			local folder = parts[1].Parent
+			assert(folder)
+
+			-- Folder -> Model: a Model replaces the Folder in place, keeping
+			-- all segments and caps together; the old Folder is removed.
+			settings.Grouping = "Model"
+			session.Update()
+			local model = parts[1].Parent
+			assert(model)
+			t.expect(model:IsA("Model")).toBeTruthy()
+			t.expect(model.Parent).toBe(workspace)
+			for _, p in session.GetSelectedInfo().Parts do
+				t.expect(p.Parent).toBe(model)
+			end
+			for _, cap in session.GetSelectedInfo().Caps do
+				t.expect(cap.Parent).toBe(model)
+			end
+			t.expect(folder.Parent).toBe(nil)
+
+			-- Model -> None: the parts spill into the group's parent and the
+			-- group goes away.
+			settings.Grouping = "None"
+			session.Update()
+			for _, p in session.GetSelectedInfo().Parts do
+				t.expect(p.Parent).toBe(workspace)
+			end
+			t.expect(model.Parent).toBe(nil)
+
+			-- None -> Folder: a fresh Folder gathers the loose parts back up.
+			settings.Grouping = "Folder"
+			session.Update()
+			local newFolder = parts[1].Parent
+			assert(newFolder)
+			t.expect(newFolder:IsA("Folder")).toBeTruthy()
+			for _, p in session.GetSelectedInfo().Parts do
+				t.expect(p.Parent).toBe(newFolder)
+			end
+
+			-- Each regroup was one undoable edit; undos step back through the
+			-- None and Model stages, and the selection's guess follows.
+			ChangeHistoryService:Undo() -- the None -> Folder regroup
+			settle()
+			t.expect(parts[1].Parent).toBe(workspace)
+			t.expect(settings.Grouping).toBe("None")
+			ChangeHistoryService:Undo() -- the Model -> None regroup
+			settle()
+			t.expect(parts[1].Parent).toBe(model)
+			t.expect(settings.Grouping).toBe("Model")
+		end)
+	end)
+
+	t.test("curving a single part groups the new segments per the setting", function()
+		withSession(function(session, settings)
+			settings.Mode = "Move"
+			local part = Instance.new("Part")
+			part.Size = Vector3.new(8, 0.5, 0.5)
+			part.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 10, 0))
+			part.Anchored = true
+			part.Parent = workspace
+			ChangeHistoryService:SetWaypoint("RopeToolTestSetup")
+
+			-- A loose single part guesses None (regardless of the Add default).
+			t.expect(session.SelectRopeFromPart(part)).toBeTruthy()
+			t.expect(settings.Grouping).toBe("None")
+
+			-- Asking for a Folder wraps the part; curving it then builds the
+			-- new segments inside that same group.
+			settings.Grouping = "Folder"
+			session.Update()
+			local folder = part.Parent
+			assert(folder)
+			t.expect(folder:IsA("Folder")).toBeTruthy()
+			t.expect(folder.Name).toBe("Rope")
+			t.expect(folder.Parent).toBe(workspace)
+
+			settings.Sag = 1
+			session.Update()
+			local info = session.GetSelectedInfo()
+			t.expect(info.Segments).toBe(4)
+			for _, p in info.Parts do
+				t.expect(p.Parent).toBe(folder)
+			end
+
+			-- With the setting left at None, a curved single part just splits
+			-- in place, ungrouped.
+			local part2 = Instance.new("Part")
+			part2.Size = Vector3.new(8, 0.5, 0.5)
+			part2.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, 16, 0))
+			part2.Anchored = true
+			part2.Parent = workspace
+			t.expect(session.SelectRopeFromPart(part2)).toBeTruthy()
+			t.expect(settings.Grouping).toBe("None")
+			settings.Sag = 1
+			session.Update()
+			local info2 = session.GetSelectedInfo()
+			t.expect(info2.Segments).toBe(4)
+			for _, p in info2.Parts do
+				t.expect(p.Parent).toBe(workspace)
+			end
 		end)
 	end)
 

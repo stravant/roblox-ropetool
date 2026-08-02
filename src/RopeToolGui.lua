@@ -263,6 +263,57 @@ local function AddOptionsPanel(props: {
 	})
 end
 
+-- Where a rope's parts live: their own Model or Folder, or ungrouped. Shown
+-- for Move and Add: with a rope selected it reflects the selection's guessed
+-- grouping and changing it regroups that rope; in Add it configures the next
+-- rope (and how a curved single part gets grouped when it splits).
+local function GroupingPanel(props: {
+	Settings: Settings.RopeToolSettings,
+	UpdatedSettings: () -> (),
+	LayoutOrder: number?,
+})
+	local current = props.Settings.Grouping
+
+	local function groupChip(text: string, value: string, order: number)
+		return e(ChipForToggle, {
+			Text = text,
+			IsCurrent = current == value,
+			LayoutOrder = order,
+			OnClick = function()
+				props.Settings.Grouping = value
+				props.UpdatedSettings()
+			end,
+		})
+	end
+
+	return e(SubPanel, {
+		Title = "Grouping",
+		LayoutOrder = props.LayoutOrder,
+		Padding = UDim.new(0, 4),
+	}, {
+		Chips = e(HelpGui.WithHelpIcon, {
+			LayoutOrder = 1,
+			Subject = e("Frame", {
+				Size = UDim2.fromScale(1, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+			}, {
+				ListLayout = e("UIListLayout", {
+					FillDirection = Enum.FillDirection.Horizontal,
+					SortOrder = Enum.SortOrder.LayoutOrder,
+					Padding = UDim.new(0, 4),
+				}),
+				Model = groupChip("Model", "Model", 1),
+				Folder = groupChip("Folder", "Folder", 2),
+				None = groupChip("None", "None", 3),
+			}),
+			Help = e(HelpGui.BasicTooltip, {
+				HelpRichText = "Group each rope's parts under their own <b>Model</b> or <b>Folder</b>, or leave them loose (<b>None</b>).<br />With a rope selected this shows its guessed grouping, and changing it regroups that rope. In Add mode it applies to the next rope built.",
+			}),
+		}),
+	})
+end
+
 -- The global Settings tab: options that aren't tied to a single editing mode.
 local function SnappingPanel(props: {
 	Settings: Settings.RopeToolSettings,
@@ -1242,6 +1293,11 @@ local function RopeToolGui(props: {
 				LayoutOrder = nextOrder(),
 			}),
 			RopePanel = showRope and e(RopePanel, {
+				Settings = currentSettings,
+				UpdatedSettings = props.UpdatedSettings,
+				LayoutOrder = nextOrder(),
+			}),
+			GroupingPanel = showRope and e(GroupingPanel, {
 				Settings = currentSettings,
 				UpdatedSettings = props.UpdatedSettings,
 				LayoutOrder = nextOrder(),

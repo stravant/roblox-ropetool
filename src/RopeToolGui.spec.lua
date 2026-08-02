@@ -26,6 +26,7 @@ local function makeSettings(mode: string): Settings.RopeToolSettings
 		Mode = mode,
 		Segments = 10,
 		SegmentType = "Cylinder",
+		Grouping = "Folder",
 		Sag = 2,
 		Sway = 0,
 		Diameter = 0.3,

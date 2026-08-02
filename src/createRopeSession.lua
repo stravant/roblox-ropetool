@@ -179,6 +179,10 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		material: Enum.Material,
 		materialVariant: string,
 		parent: Instance,
+		-- The rope's guessed grouping: "Model" or "Folder" when parent is a
+		-- grouping Instance of that class holding exactly this rope's parts
+		-- (so restructuring it can't disturb anything else), else "None".
+		grouping: string,
 	}
 
 	local mSelected: SelectedRope? = nil
@@ -231,6 +235,34 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return math.round(value / step) * step
 	end
 
+	-- The guessed grouping of a rope's part set: the common parent when it is a
+	-- Model/Folder containing exactly these parts and caps (the rope's own
+	-- group), else "None". Exclusivity matters: a shared container isn't THIS
+	-- rope's group, and regrouping must not disturb unrelated children.
+	local function guessGrouping(parts: { BasePart }, caps: { BasePart }): string
+		local parent = parts[1] and parts[1].Parent
+		if not parent then
+			return "None"
+		end
+		if not (parent:IsA("Model") or parent:IsA("Folder")) then
+			return "None"
+		end
+		for _, part in parts do
+			if part.Parent ~= parent then
+				return "None"
+			end
+		end
+		for _, cap in caps do
+			if cap.Parent ~= parent then
+				return "None"
+			end
+		end
+		if #parent:GetChildren() ~= #parts + #caps then
+			return "None"
+		end
+		return parent.ClassName
+	end
+
 	local function syncSettingsFromSelection(sel: SelectedRope)
 		currentSettings.Segments = sel.segments
 		currentSettings.Sag = roundTo(sel.sag, 0.01)
@@ -241,6 +273,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		currentSettings.RopeColor = { sel.color.R, sel.color.G, sel.color.B }
 		currentSettings.RopeMaterial = sel.material.Name
 		currentSettings.RopeMaterialVariant = sel.materialVariant
+		currentSettings.Grouping = sel.grouping
 	end
 
 	local function deriveSelectionFromRope(rope: RopeGraph.Rope): SelectedRope?
@@ -253,6 +286,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return {
 			parts = parts,
 			caps = table.clone(rope.caps),
+			grouping = guessGrouping(parts, rope.caps),
 			polyline = polyline,
 			pointA = polyline[1],
 			pointB = polyline[#polyline],
@@ -503,7 +537,46 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		if currentSettings.RopeMaterialVariant ~= sel.materialVariant then
 			return true
 		end
+		if currentSettings.Grouping ~= sel.grouping then
+			return true
+		end
 		return false
+	end
+
+	-- Restructure the selected rope's container to match the Grouping setting:
+	-- wrap an ungrouped rope in a new Model/Folder, convert between the two, or
+	-- dissolve the group back into its parent. The old group is only removed
+	-- once moving the rope out leaves it empty (sel.grouping is only ever
+	-- "Model"/"Folder" for a group holding exactly this rope, so that's the
+	-- normal case; the guard covers the scene changing since selection).
+	local function applyGroupingToSelection(sel: SelectedRope): boolean
+		local desired = currentSettings.Grouping
+		if desired == sel.grouping or (desired ~= "Model" and desired ~= "Folder" and desired ~= "None") then
+			return false
+		end
+		local oldGroup: Instance? = if sel.grouping ~= "None" then sel.parent else nil
+		local baseParent: Instance = if oldGroup then oldGroup.Parent or workspace else sel.parent
+		local newParent: Instance
+		if desired == "None" then
+			newParent = baseParent
+		else
+			local group: Instance = if desired == "Model" then Instance.new("Model") else Instance.new("Folder")
+			group.Name = if oldGroup then oldGroup.Name else "Rope"
+			group.Parent = baseParent
+			newParent = group
+		end
+		for _, part in sel.parts do
+			part.Parent = newParent
+		end
+		for _, cap in sel.caps do
+			cap.Parent = newParent
+		end
+		if oldGroup and #oldGroup:GetChildren() == 0 then
+			oldGroup.Parent = nil -- not Destroy, so undo can restore it
+		end
+		sel.parent = newParent
+		sel.grouping = desired
+		return true
 	end
 
 	-- Apply the panel settings to the selected rope as one undoable edit.
@@ -527,6 +600,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			sel.material = (Enum.Material :: any)[currentSettings.RopeMaterial] or Enum.Material.Fabric
 			sel.materialVariant = currentSettings.RopeMaterialVariant
 			applySinglePartSplit(sel)
+			applyGroupingToSelection(sel)
 			rebuildSelected(sel)
 			return true
 		end)
@@ -731,17 +805,26 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	end
 
 	-- Build a new rope between the two picked points using the current panel
-	-- settings, as one undoable operation. Each rope gets its own folder.
+	-- settings, as one undoable operation. Per the Grouping setting the rope
+	-- gets its own Model or Folder, or its parts sit directly in workspace.
 	local function commitRope(a: Vector3, b: Vector3)
 		if (b - a).Magnitude < 0.01 then
 			return
 		end
 		local builtParts: { BasePart } = {}
 		runUndoableOperation("RopeTool Add Rope", function(): boolean
-			local folder = Instance.new("Folder")
-			folder.Name = "Rope"
-			folder.Parent = workspace
-			builtParts = buildRope({
+			local group: Instance? = nil
+			if currentSettings.Grouping == "Model" then
+				group = Instance.new("Model")
+			elseif currentSettings.Grouping == "Folder" then
+				group = Instance.new("Folder")
+			end
+			if group then
+				group.Name = "Rope"
+				group.Parent = workspace
+			end
+			local builtCaps: { BasePart }
+			builtParts, builtCaps = buildRope({
 				PointA = a,
 				PointB = b,
 				Sag = currentSettings.Sag,
@@ -750,11 +833,17 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				SegmentType = currentSettings.SegmentType,
 				Diameter = math.max(0.01, currentSettings.Diameter),
 				HaveEndcaps = currentSettings.HaveEndcaps,
-				Parent = folder,
+				Parent = group or workspace,
 				Props = getRopeProps(),
 			})
 			if #builtParts == 0 then
-				folder.Parent = nil
+				if group then
+					group.Parent = nil
+				else
+					for _, cap in builtCaps do
+						cap.Parent = nil
+					end
+				end
 				return false
 			end
 			return true
@@ -1552,6 +1641,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		SegmentType: string,
 		Diameter: number,
 		HaveEndcaps: boolean,
+		Grouping: string,
 		Parts: { BasePart },
 		Caps: { BasePart },
 	}?
@@ -1568,6 +1658,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			SegmentType = sel.segmentType,
 			Diameter = sel.diameter,
 			HaveEndcaps = sel.haveEndcaps,
+			Grouping = sel.grouping,
 			Parts = table.clone(sel.parts),
 			Caps = table.clone(sel.caps),
 		}
