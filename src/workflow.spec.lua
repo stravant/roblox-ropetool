@@ -1110,6 +1110,79 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("rope Models get a world pivot at the bottom of the sag", function()
+		withSession(function(session, settings)
+			-- Add with Model grouping: the pivot sits at the curve's midpoint
+			-- (sag below the chord), local X along the chord, and local +Y
+			-- facing world +Y since the sway is zero.
+			settings.Mode = "Add"
+			settings.Grouping = "Model"
+			session.AddClickAt(kPointA)
+			session.AddClickAt(kPointB)
+			local parts = findRopeParts()
+			local model = parts[1].Parent
+			assert(model and model:IsA("Model"))
+			local pivot = (model :: Model):GetPivot()
+			t.expect(nearV(pivot.Position, kRegionCenter + Vector3.new(0, 8, 0), 0.001)).toBeTruthy()
+			t.expect(nearV(pivot.XVector, Vector3.new(1, 0, 0), 0.001)).toBeTruthy()
+			t.expect(nearV(pivot.YVector, Vector3.new(0, 1, 0), 0.001)).toBeTruthy()
+
+			-- Converting a Folder rope to a Model assigns the same pivot
+			-- (the chord direction may read either way from discovery).
+			settings.Grouping = "Folder"
+			session.AddClickAt(kPointA + Vector3.new(0, 6, 0))
+			session.AddClickAt(kPointB + Vector3.new(0, 6, 0))
+			settings.Mode = "Move"
+			-- The first rope hangs at +8..+10 relative to the region center;
+			-- this second one at +14..+16.
+			local upperPart: BasePart? = nil
+			for _, p in findRopeParts() do
+				if p.Position.Y > kRegionCenter.Y + 11 then
+					upperPart = p
+					break
+				end
+			end
+			assert(upperPart)
+			t.expect(session.SelectRopeFromPart(upperPart)).toBeTruthy()
+			settings.Grouping = "Model"
+			session.Update()
+			local converted = upperPart.Parent
+			assert(converted and converted:IsA("Model"))
+			local convertedPivot = (converted :: Model):GetPivot()
+			t.expect(nearV(convertedPivot.Position, kRegionCenter + Vector3.new(0, 14, 0), 0.05)).toBeTruthy()
+			t.expect(math.abs(convertedPivot.XVector.X) > 0.999).toBeTruthy()
+			t.expect(nearV(convertedPivot.YVector, Vector3.new(0, 1, 0), 0.005)).toBeTruthy()
+			session.Deselect()
+
+			-- A swaying rope rolls the pivot about the chord: +Y opposes the
+			-- horizontal bow, and the position follows the bowed midpoint.
+			settings.Mode = "Add"
+			settings.Grouping = "Model"
+			settings.Sag = 0
+			settings.Sway = 2
+			local a2 = kPointA + Vector3.new(0, 12, 0)
+			local b2 = kPointB + Vector3.new(0, 12, 0)
+			session.AddClickAt(a2)
+			session.AddClickAt(b2)
+			local swayPart: BasePart? = nil
+			for _, p in findRopeParts() do
+				if p.Position.Y > kRegionCenter.Y + 18 then
+					swayPart = p
+					break
+				end
+			end
+			assert(swayPart)
+			local swayModel = swayPart.Parent
+			assert(swayModel and swayModel:IsA("Model"))
+			local swayPivot = (swayModel :: Model):GetPivot()
+			-- Chord A->B runs +X, so the sway direction is +Z: the pivot is
+			-- pushed to the bow's far side with +Y pointing back against it.
+			t.expect(nearV(swayPivot.Position, kRegionCenter + Vector3.new(0, 22, 2), 0.001)).toBeTruthy()
+			t.expect(nearV(swayPivot.XVector, Vector3.new(1, 0, 0), 0.001)).toBeTruthy()
+			t.expect(nearV(swayPivot.YVector, Vector3.new(0, 0, -1), 0.001)).toBeTruthy()
+		end)
+	end)
+
 	t.test("workflow: full add, modify, undo round trip", function()
 		withSession(function(session, settings)
 			-- Add

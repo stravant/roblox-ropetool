@@ -543,6 +543,40 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return false
 	end
 
+	-- The pivot for a rope grouped into a Model: positioned at the bottom of
+	-- the sag (the curve's midpoint), local X running along the chord, and
+	-- local +Y facing world +Y for a swayless rope. With sway, the frame
+	-- rolls about the chord so +Y opposes the curve's combined droop
+	-- direction (straight up again as the sway returns to zero).
+	local function ropeModelPivot(a: Vector3, b: Vector3, sag: number, sway: number): CFrame
+		local position = a:Lerp(b, 0.5) - Vector3.yAxis * sag
+		local swayDir = ropeCurve.swayDirection(a, b)
+		if swayDir then
+			position += swayDir * sway
+		end
+		local chord = b - a
+		local x = if chord.Magnitude > 0.001 then chord.Unit else Vector3.xAxis
+		local up = Vector3.yAxis
+		if swayDir and math.abs(sway) > 1e-3 then
+			local offset = -Vector3.yAxis * sag + swayDir * sway
+			if offset.Magnitude > 1e-4 then
+				up = -offset.Unit
+			end
+		end
+		local z = x:Cross(up)
+		if z.Magnitude < 0.001 then
+			-- A straight vertical rope: the chord is the up direction, any
+			-- horizontal cross direction serves.
+			z = x:Cross(Vector3.xAxis)
+			if z.Magnitude < 0.001 then
+				z = x:Cross(Vector3.zAxis)
+			end
+		end
+		z = z.Unit
+		local y = z:Cross(x).Unit
+		return CFrame.fromMatrix(position, x, y, z)
+	end
+
 	-- Restructure the selected rope's container to match the Grouping setting:
 	-- wrap an ungrouped rope in a new Model/Folder, convert between the two, or
 	-- dissolve the group back into its parent. The old group is only removed
@@ -573,6 +607,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		end
 		if oldGroup and #oldGroup:GetChildren() == 0 then
 			oldGroup.Parent = nil -- not Destroy, so undo can restore it
+		end
+		if newParent:IsA("Model") then
+			(newParent :: Model).WorldPivot = ropeModelPivot(sel.pointA, sel.pointB, sel.sag, sel.sway)
 		end
 		sel.parent = newParent
 		sel.grouping = desired
@@ -857,6 +894,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 					end
 				end
 				return false
+			end
+			if group and group:IsA("Model") then
+				(group :: Model).WorldPivot = ropeModelPivot(a, b, currentSettings.Sag, currentSettings.Sway)
 			end
 			return true
 		end)
