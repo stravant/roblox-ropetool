@@ -455,9 +455,47 @@ local function discoverRope(seedPart: Instance): Rope?
 	end
 
 	-- Extract the ordered chain through the seed edge: extend from both of its
-	-- vertices, continuing only through degree-2 vertices (a junction or an end
-	-- terminates that side), guarding against closed loops.
+	-- vertices. A degree-2 vertex continues plainly; an end (degree 1)
+	-- terminates that side; loops are guarded against.
 	local seedEdgeId = edgeIdByPart[seedInfo.part]
+
+	local function edgeOtherVertex(edgeId: number, vertexId: number): number
+		local e = edges[edgeId]
+		return if e.v1 == vertexId then e.v2 else e.v1
+	end
+
+	-- At a junction (3+ edges) the walk doesn't just stop: another matching
+	-- rope attached into the middle of this one adds a third edge at the
+	-- shared vertex, but the through-line is usually still unambiguous.
+	-- Continue along the SOLE candidate whose bend from the incoming
+	-- direction stays within the attachment threshold; nil when none does
+	-- (nothing smoothly continues) or several do (a genuinely ambiguous
+	-- split, e.g. a symmetric Y).
+	local function junctionContinuation(currentEdge: number, currentVertex: number): number?
+		local v = vertices[currentVertex]
+		local incoming = v.position - vertices[edgeOtherVertex(currentEdge, currentVertex)].position
+		if incoming.Magnitude < 0.001 then
+			return nil
+		end
+		local incomingDir = incoming.Unit
+		local sole: number? = nil
+		for _, eid in v.edges do
+			if eid ~= currentEdge then
+				local outgoing = vertices[edgeOtherVertex(eid, currentVertex)].position - v.position
+				if outgoing.Magnitude > 0.001 then
+					local dir = outgoing.Unit
+					local angle = math.atan2(incomingDir:Cross(dir).Magnitude, incomingDir:Dot(dir))
+					if angle <= kMaxContinuationBendRadians then
+						if sole ~= nil then
+							return nil -- ambiguous
+						end
+						sole = eid
+					end
+				end
+			end
+		end
+		return sole
+	end
 
 	local function walk(fromEdgeId: number, fromVertexId: number): ({ number }, { number })
 		local pathOut: { number } = {}
@@ -472,13 +510,18 @@ local function discoverRope(seedPart: Instance): Rope?
 			visited[currentVertex] = true
 			table.insert(pathOut, currentVertex)
 			local v = vertices[currentVertex]
-			if #v.edges ~= 2 then
-				break -- an end (1) or a junction (3+)
+			local nextEdge: number? = nil
+			if #v.edges == 2 then
+				nextEdge = if v.edges[1] == currentEdge then v.edges[2] else v.edges[1]
+			elseif #v.edges > 2 then
+				nextEdge = junctionContinuation(currentEdge, currentVertex)
 			end
-			local nextEdge = if v.edges[1] == currentEdge then v.edges[2] else v.edges[1]
-			local e = edges[nextEdge]
-			table.insert(edgesOut, nextEdge)
-			currentEdge = nextEdge
+			if not nextEdge then
+				break -- an end, or a junction with no sole smooth through-line
+			end
+			local e = edges[nextEdge :: number]
+			table.insert(edgesOut, nextEdge :: number)
+			currentEdge = nextEdge :: number
 			currentVertex = if e.v1 == currentVertex then e.v2 else e.v1
 		end
 		return pathOut, edgesOut

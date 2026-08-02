@@ -811,7 +811,7 @@ return function(t: TestTypes.TestContext)
 
 	t.test("add points and grab drags snap onto the interior joints of other ropes", function()
 		withSession(function(session, settings)
-			addStandardRope(session, settings)
+			local rope1Parts = addStandardRope(session, settings)
 			-- 10 segments make the span's middle an interior joint, sitting
 			-- sag below the chord's midpoint.
 			local joint = kRegionCenter + Vector3.new(0, 8, 0)
@@ -832,13 +832,17 @@ return function(t: TestTypes.TestContext)
 			settings.SnapRopeEnds = true
 
 			-- A second rope's endpoint grab-dragged near the joint attaches
-			-- onto it exactly (the shared Add-style snapping).
+			-- onto it exactly (the shared Add-style snapping). Built straight
+			-- and overhead so it comes into the junction steeply.
 			settings.SelectAfterAdd = true
-			session.AddClickAt(kPointA + Vector3.new(0, 6, 0))
-			session.AddClickAt(kPointB + Vector3.new(0, 6, 0))
+			settings.Sag = 0
+			local a2 = kRegionCenter + Vector3.new(-4, 18, 0)
+			local b2 = kRegionCenter + Vector3.new(4, 18, 0)
+			session.AddClickAt(a2)
+			session.AddClickAt(b2)
 			t.expect(settings.Mode).toBe("Move")
 			local info = session.GetSelectedInfo()
-			local target = if nearV(info.PointA, kPointA + Vector3.new(0, 6, 0), 0.05) then "A" else "B"
+			local target = if nearV(info.PointA, a2, 0.05) then "A" else "B"
 			session.StartHandleDrag(target)
 			session.ApplyHandleDragTo(joint + Vector3.new(0.2, 0.1, 0), nil)
 			session.EndHandleDrag()
@@ -846,6 +850,12 @@ return function(t: TestTypes.TestContext)
 			t.expect(
 				nearV(dragged.PointA, joint, 0.05) or nearV(dragged.PointB, joint, 0.05)
 			).toBeTruthy()
+
+			-- The attachment must not cut rope 1 in half selection-wise: it
+			-- still discovers end to end through the new junction.
+			t.expect(session.SelectRopeFromPart(rope1Parts[1])).toBeTruthy()
+			t.expect(session.GetSelectedInfo().Segments).toBe(10)
+			t.expect(selectionSpans(session, kPointA, kPointB, 0.05)).toBeTruthy()
 		end)
 	end)
 

@@ -10,5 +10,7 @@ RopeTool known limitations / future work:
   suppressed during drags). Cosmetic.
 * Rope segments are built CanCollide = false; possibly worth a setting.
 * No F-to-focus-selection key (PolyMap has one).
-* Junctions (3+ matching segments meeting at a vertex) terminate the chain
-  walk; selecting "through" a junction isn't possible.
+* A junction whose branches leave at similar shallow angles (within the 45
+  degree attachment threshold on both sides, e.g. a sagging rope whose
+  end-tangent aligns with the rope it attaches to) is ambiguous and still
+  terminates the chain walk.

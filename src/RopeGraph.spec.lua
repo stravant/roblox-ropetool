@@ -403,6 +403,37 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("discovery continues through a junction where a matching rope attaches", function()
+		withFolder(function(folder)
+			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
+			-- Rope A, with rope B (same properties) hung off A's middle joint
+			-- at ~90 degrees (B runs off in Z, A in X).
+			local a1 = kRegion + Vector3.new(0, 0, -120)
+			local b1 = a1 + Vector3.new(20, 0, 0)
+			local partsA = makeRope(folder, a1, b1, props)
+			local joint = a1 + Vector3.new(10, -2, 0) -- A's mid joint (8 segments, sag 2)
+			local partsB = makeRope(folder, joint, joint + Vector3.new(0, 0, 14), props)
+
+			-- A discovers end to end THROUGH the junction from either side:
+			-- the attachment must not cut it in half.
+			for _, seed in { partsA[2], partsA[7] } do
+				local rope = RopeGraph.discoverRope(seed)
+				assert(rope)
+				t.expect(#rope.chainEdges).toBe(8)
+				local polyline = RopeGraph.ropePolyline(rope)
+				local spans = (nearV(polyline[1], a1, 0.1) and nearV(polyline[#polyline], b1, 0.1))
+					or (nearV(polyline[1], b1, 0.1) and nearV(polyline[#polyline], a1, 0.1))
+				t.expect(spans).toBeTruthy()
+			end
+
+			-- B stays its own rope: from B's side the junction offers only
+			-- ~90 degree turns onto A, so the walk ends there.
+			local ropeB = RopeGraph.discoverRope(partsB[4])
+			assert(ropeB)
+			t.expect(#ropeB.chainEdges).toBe(8)
+		end)
+	end)
+
 	t.test("parallel side-by-side ropes stay separate", function()
 		withFolder(function(folder)
 			local props: buildRope.RopeProps = { Color = Color3.new(1, 0, 0), Material = Enum.Material.Fabric }
