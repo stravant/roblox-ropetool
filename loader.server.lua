@@ -4,7 +4,7 @@ local COMBINE_TOOLBAR = false
 local createSharedToolbar = require(script.Parent.Packages.createSharedToolbar)
 local Signal = require(script.Parent.Packages.Signal)
 
-local RIBBON_ICON = "rbxassetid://77027297360382"
+local RIBBON_ICON = "rbxassetid://84990553794486"
 local TOOLTIP = "Activate RopeTool plugin, opening the settings panel and activating the rope editor."
 
 local setButtonActive: (active: boolean) -> () = nil
