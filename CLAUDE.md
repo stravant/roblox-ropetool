@@ -22,8 +22,8 @@ Modes:
 - **Color** — the appearance tool: same hover/click rope selection as Move (the selection is
   shared between the two), but no drag handles; the Color and Material panels live here and
   apply to the selected rope.
-- **Settings** — global options: the Snapping section ("Rope End" / "Geometry Edges" checkboxes)
-  gates the two snap tiers used by Add clicks and Move's endpoint grab drags.
+- **Settings** — global options: the Snapping section ("Rope Ends & Joints" / "Geometry Edges"
+  checkboxes) gates the two snap tiers used by Add clicks and Move's endpoint grab drags.
 
 ## Build Commands
 

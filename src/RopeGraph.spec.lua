@@ -302,22 +302,31 @@ return function(t: TestTypes.TestContext)
 			post.Parent = folder
 
 			local foundB = false
-			for _, endpoint in RopeGraph.findRopeEndpointsNear(b, 3, nil) do
+			for _, endpoint in RopeGraph.findRopeSnapPointsNear(b, 3, nil) do
 				if (endpoint - b).Magnitude < 0.05 then
 					foundB = true
 				end
 			end
 			t.expect(foundB).toBeTruthy()
 
-			-- A smooth interior joint of the rope is still NOT an endpoint.
+			-- A smooth interior joint of the rope is NOT a chain end, but IS
+			-- reported as a joint attach point (for mid-rope snapping).
 			local mid = kRegion + Vector3.new(10, -4, 0)
+			local midEndpoints, midJoints = RopeGraph.findRopeSnapPointsNear(mid, 1.5, nil)
 			local foundInterior = false
-			for _, endpoint in RopeGraph.findRopeEndpointsNear(mid, 1.5, nil) do
+			for _, endpoint in midEndpoints do
 				if (endpoint - mid).Magnitude < 0.5 then
 					foundInterior = true
 				end
 			end
 			t.expect(foundInterior).toBeFalsy()
+			local foundJoint = false
+			for _, joint in midJoints do
+				if (joint - mid).Magnitude < 0.1 then
+					foundJoint = true
+				end
+			end
+			t.expect(foundJoint).toBeTruthy()
 		end)
 	end)
 

@@ -621,11 +621,13 @@ local function discoverRope(seedPart: Instance): Rope?
 	}
 end
 
--- Rope endpoints (chain ends) near a position, for point snapping: the
--- endpoints of plausible segments that no other matching segment continues.
--- One bounds query suffices: any segment sharing an endpoint that lies inside
--- the query sphere necessarily has bounds touching the sphere, so it is in
--- the collection and chain-endness can be decided in memory.
+-- Rope attach points near a position, for point snapping, in two lists:
+-- ENDPOINTS (chain ends -- segment endpoints that no other matching segment
+-- continues) and interior JOINTS (endpoints a matching segment does continue,
+-- so another rope can hang off the middle of this one). One bounds query
+-- suffices: any segment sharing an endpoint that lies inside the query sphere
+-- necessarily has bounds touching the sphere, so it is in the collection and
+-- chain-endness can be decided in memory.
 -- excludeParts (e.g. the rope being dragged) contribute neither endpoints nor
 -- continuations.
 --
@@ -634,11 +636,11 @@ end
 -- O(n^2) all-pairs scan (a couple of dense ropes near the cursor collect
 -- hundreds of segments).
 type EndpointEntry = { index: number, position: Vector3, far: Vector3 }
-local function findRopeEndpointsNear(
+local function findRopeSnapPointsNear(
 	position: Vector3,
 	radius: number,
 	excludeParts: { [BasePart]: boolean }?
-): { Vector3 }
+): ({ Vector3 }, { Vector3 })
 	local params = OverlapParams.new()
 	params.MaxParts = 1000
 	local infos: { SegmentInfo } = {}
@@ -679,11 +681,11 @@ local function findRopeEndpointsNear(
 		end
 	end
 
-	-- Whether a matching segment smoothly continues the chain at `endpoint`
-	-- (same rule as the chain walk's absolute cap: a steep joint is an
-	-- ATTACHMENT, e.g. a rope hung off a matching post, and the endpoint
-	-- stays snappable).
-	local function hasContinuation(index: number, endpoint: Vector3, infoFar: Vector3): boolean
+	-- The position of a matching segment endpoint smoothly continuing the
+	-- chain at `endpoint`, or nil (same rule as the chain walk's absolute
+	-- cap: a steep joint is an ATTACHMENT, e.g. a rope hung off a matching
+	-- post, and the endpoint stays a chain end).
+	local function findContinuation(index: number, endpoint: Vector3, infoFar: Vector3): Vector3?
 		local info = infos[index]
 		local base = cellKey(endpoint)
 		for dx = -1, 1 do
@@ -705,7 +707,7 @@ local function findRopeEndpointsNear(
 										local dv = outgoing.Unit
 										local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
 										if angle <= kMaxContinuationBendRadians then
-											return true
+											return entry.position
 										end
 									end
 								end
@@ -715,21 +717,38 @@ local function findRopeEndpointsNear(
 				end
 			end
 		end
-		return false
+		return nil
 	end
 
 	local endpoints: { Vector3 } = {}
+	local joints: { Vector3 } = {}
+	-- A joint is contributed once per adjoining segment (twice normally, more
+	-- at junctions), each pair averaging to the same point: dedupe nearby.
+	local function noteJoint(jointPosition: Vector3)
+		for _, existing in joints do
+			if (existing - jointPosition).Magnitude <= kJoinToleranceFloor then
+				return
+			end
+		end
+		table.insert(joints, jointPosition)
+	end
 	for index, info in infos do
 		for endIndex, endpoint in { info.e1, info.e2 } do
 			if (endpoint - position).Magnitude <= radius then
 				local infoFar = if endIndex == 1 then info.e2 else info.e1
-				if not hasContinuation(index, endpoint, infoFar) then
+				local partner = findContinuation(index, endpoint, infoFar)
+				if partner then
+					-- An interior joint. The two straddling endpoints extend
+					-- PAST the joint symmetrically (buildRope's outer join),
+					-- so their average recovers the joint itself.
+					noteJoint((endpoint + partner) / 2)
+				else
 					table.insert(endpoints, endpoint)
 				end
 			end
 		end
 	end
-	return endpoints
+	return endpoints, joints
 end
 
 -- The chain's vertex positions in path order (the rope's polyline).
@@ -754,7 +773,7 @@ return {
 	getSegmentInfo = getSegmentInfo,
 	segmentsMatch = segmentsMatch,
 	discoverRope = discoverRope,
-	findRopeEndpointsNear = findRopeEndpointsNear,
+	findRopeSnapPointsNear = findRopeSnapPointsNear,
 	ropePolyline = ropePolyline,
 	ropeParts = ropeParts,
 }

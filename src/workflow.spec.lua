@@ -809,6 +809,46 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("add points and grab drags snap onto the interior joints of other ropes", function()
+		withSession(function(session, settings)
+			addStandardRope(session, settings)
+			-- 10 segments make the span's middle an interior joint, sitting
+			-- sag below the chord's midpoint.
+			local joint = kRegionCenter + Vector3.new(0, 8, 0)
+
+			-- An Add click slightly off the joint snaps exactly onto it.
+			settings.Mode = "Add"
+			session.AddClickAt(joint + Vector3.new(0.25, 0.15, 0))
+			local first = session.GetAddFirstPoint()
+			t.expect(first).toBeTruthy()
+			t.expect(nearV(first, joint, 0.05)).toBeTruthy()
+			session.DebugEscape()
+
+			-- With rope snapping off, the click stays where it landed.
+			settings.SnapRopeEnds = false
+			session.AddClickAt(joint + Vector3.new(0.25, 0.15, 0))
+			t.expect(nearV(session.GetAddFirstPoint(), joint + Vector3.new(0.25, 0.15, 0), 0.001)).toBeTruthy()
+			session.DebugEscape()
+			settings.SnapRopeEnds = true
+
+			-- A second rope's endpoint grab-dragged near the joint attaches
+			-- onto it exactly (the shared Add-style snapping).
+			settings.SelectAfterAdd = true
+			session.AddClickAt(kPointA + Vector3.new(0, 6, 0))
+			session.AddClickAt(kPointB + Vector3.new(0, 6, 0))
+			t.expect(settings.Mode).toBe("Move")
+			local info = session.GetSelectedInfo()
+			local target = if nearV(info.PointA, kPointA + Vector3.new(0, 6, 0), 0.05) then "A" else "B"
+			session.StartHandleDrag(target)
+			session.ApplyHandleDragTo(joint + Vector3.new(0.2, 0.1, 0), nil)
+			session.EndHandleDrag()
+			local dragged = session.GetSelectedInfo()
+			t.expect(
+				nearV(dragged.PointA, joint, 0.05) or nearV(dragged.PointB, joint, 0.05)
+			).toBeTruthy()
+		end)
+	end)
+
 	t.test("add points snap to the corners of clicked parts", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

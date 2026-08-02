@@ -646,10 +646,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 		return math.clamp(distance * 0.06, 1, 30)
 	end
 
-	-- A rope endpoint within this many diameters (of the rope being placed or
-	-- dragged) of the target point wins outright over any other snap
+	-- A rope attach point within this many diameters (of the rope being placed
+	-- or dragged) of the target point wins outright over any other snap
 	-- candidate: at that range, attaching the ropes together is almost always
-	-- the intent, even when some part corner is nearer on screen.
+	-- the intent, even when some part corner is nearer on screen. Chain ends
+	-- take precedence over interior joints, so a rope still chains end-to-end
+	-- when both are in range.
 	local kEndpointPriorityDiameters = 2
 
 	local function snapAddPosition(
@@ -668,29 +670,36 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			end
 		end
 
-		local endpoints: { Vector3 } = if currentSettings.SnapRopeEnds
-			then RopeGraph.findRopeEndpointsNear(worldPos, snapQueryRadius(worldPos), excludeParts)
-			else {}
-
-		-- Priority pass: the nearest rope endpoint within the world-space
-		-- priority radius beats everything else.
-		local priorityRadius = ropeDiameter * kEndpointPriorityDiameters
-		local bestPriority: Vector3? = nil
-		local bestPriorityDist = priorityRadius
-		for _, endpoint in endpoints do
-			local dist = (endpoint - worldPos).Magnitude
-			if dist <= bestPriorityDist then
-				bestPriorityDist = dist
-				bestPriority = endpoint
-			end
+		local endpoints: { Vector3 } = {}
+		local ropeJoints: { Vector3 } = {}
+		if currentSettings.SnapRopeEnds then
+			endpoints, ropeJoints = RopeGraph.findRopeSnapPointsNear(worldPos, snapQueryRadius(worldPos), excludeParts)
 		end
+
+		-- Priority pass: the nearest rope attach point within the world-space
+		-- priority radius beats everything else (chain ends before interior
+		-- joints, so ropes can attach to the middle of another rope too).
+		local priorityRadius = ropeDiameter * kEndpointPriorityDiameters
+		local function nearestWithinPriority(candidates: { Vector3 }): Vector3?
+			local best: Vector3? = nil
+			local bestDist = priorityRadius
+			for _, candidate in candidates do
+				local dist = (candidate - worldPos).Magnitude
+				if dist <= bestDist then
+					bestDist = dist
+					best = candidate
+				end
+			end
+			return best
+		end
+		local bestPriority = nearestWithinPriority(endpoints) or nearestWithinPriority(ropeJoints)
 		if bestPriority then
 			return bestPriority, true
 		end
 
 		-- Tier 1: one pool of point candidates by screen distance -- the
-		-- (farther) endpoints of nearby ropes competing with the hit part's
-		-- corners.
+		-- (farther) endpoints and joints of nearby ropes competing with the
+		-- hit part's corners.
 		local bestPos: Vector3? = nil
 		local bestDist = kSnapPixels
 		local function offerPoint(candidate: Vector3)
@@ -703,6 +712,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 
 		for _, endpoint in endpoints do
 			offerPoint(endpoint)
+		end
+		for _, joint in ropeJoints do
+			offerPoint(joint)
 		end
 
 		-- MeshParts/Unions have no analytic corners; their nearest mesh edge

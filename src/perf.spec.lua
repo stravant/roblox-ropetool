@@ -54,15 +54,15 @@ return function(t: TestTypes.TestContext)
 				t.fail(string.format("discoverRope took %.1fms (budget 250ms)", discoverMs))
 			end
 
-			-- The per-hover-frame endpoint scan, collecting all 200 segments.
+			-- The per-hover-frame snap-point scan, collecting all 200 segments.
 			local center = kRegion + Vector3.new(0, -1, 4.5)
 			startTime = os.clock()
 			for _ = 1, 10 do
-				RopeGraph.findRopeEndpointsNear(center, 30, nil)
+				RopeGraph.findRopeSnapPointsNear(center, 30, nil)
 			end
 			local scanMs = (os.clock() - startTime) * 100
 			if scanMs > 25 then
-				t.fail(string.format("findRopeEndpointsNear took %.2fms per call (budget 25ms)", scanMs))
+				t.fail(string.format("findRopeSnapPointsNear took %.2fms per call (budget 25ms)", scanMs))
 			end
 		end)
 		folder:Destroy()
