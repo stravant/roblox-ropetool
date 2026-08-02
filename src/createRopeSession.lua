@@ -544,10 +544,12 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	end
 
 	-- The pivot for a rope grouped into a Model: positioned at the bottom of
-	-- the sag (the curve's midpoint), local X running along the chord, and
-	-- local +Y facing world +Y for a swayless rope. With sway, the frame
-	-- rolls about the chord so +Y opposes the curve's combined droop
-	-- direction (straight up again as the sway returns to zero).
+	-- the sag (the curve's midpoint), local X running along the chord's
+	-- plan-view (flattened) direction, and local +Y facing EXACTLY world +Y
+	-- -- even when the endpoints sit at different heights, since a hanging
+	-- rope's design intent is gravity-based. Only sway rolls the frame off
+	-- upright (+Y turns to oppose the combined droop direction), because a
+	-- swaying rope is no longer shaped purely by gravity.
 	local function ropeModelPivot(a: Vector3, b: Vector3, sag: number, sway: number): CFrame
 		local position = a:Lerp(b, 0.5) - Vector3.yAxis * sag
 		local swayDir = ropeCurve.swayDirection(a, b)
@@ -555,7 +557,10 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			position += swayDir * sway
 		end
 		local chord = b - a
-		local x = if chord.Magnitude > 0.001 then chord.Unit else Vector3.xAxis
+		local flat = Vector3.new(chord.X, 0, chord.Z)
+		-- A vertical chord has no plan-view direction (and no sway): any
+		-- upright horizontal frame serves.
+		local x = if flat.Magnitude > 0.001 then flat.Unit else Vector3.xAxis
 		local up = Vector3.yAxis
 		if swayDir and math.abs(sway) > 1e-3 then
 			local offset = -Vector3.yAxis * sag + swayDir * sway
@@ -563,18 +568,9 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 				up = -offset.Unit
 			end
 		end
-		local z = x:Cross(up)
-		if z.Magnitude < 0.001 then
-			-- A straight vertical rope: the chord is the up direction, any
-			-- horizontal cross direction serves.
-			z = x:Cross(Vector3.xAxis)
-			if z.Magnitude < 0.001 then
-				z = x:Cross(Vector3.zAxis)
-			end
-		end
-		z = z.Unit
-		local y = z:Cross(x).Unit
-		return CFrame.fromMatrix(position, x, y, z)
+		-- The droop offset lies in the plane of world Y and swayDir, both
+		-- perpendicular to the flattened chord, so x and up are orthogonal.
+		return CFrame.fromMatrix(position, x, up, x:Cross(up).Unit)
 	end
 
 	-- Restructure the selected rope's container to match the Grouping setting:

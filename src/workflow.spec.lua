@@ -1180,6 +1180,28 @@ return function(t: TestTypes.TestContext)
 			t.expect(nearV(swayPivot.Position, kRegionCenter + Vector3.new(0, 22, 2), 0.001)).toBeTruthy()
 			t.expect(nearV(swayPivot.XVector, Vector3.new(1, 0, 0), 0.001)).toBeTruthy()
 			t.expect(nearV(swayPivot.YVector, Vector3.new(0, 0, -1), 0.001)).toBeTruthy()
+
+			-- A tilted chord (endpoints at different heights) without sway
+			-- keeps +Y EXACTLY world up -- the sag hangs by gravity, so the
+			-- pivot stays upright with X along the chord's plan view.
+			settings.Sag = 1.5
+			settings.Sway = 0
+			session.AddClickAt(kPointA + Vector3.new(0, 18, 0))
+			session.AddClickAt(kPointB + Vector3.new(0, 24, 0))
+			local tiltedPart: BasePart? = nil
+			for _, p in findRopeParts() do
+				if p.Position.Y > kRegionCenter.Y + 24 then
+					tiltedPart = p
+					break
+				end
+			end
+			assert(tiltedPart)
+			local tiltedModel = tiltedPart.Parent
+			assert(tiltedModel and tiltedModel:IsA("Model"))
+			local tiltedPivot = (tiltedModel :: Model):GetPivot()
+			t.expect(nearV(tiltedPivot.Position, kRegionCenter + Vector3.new(0, 29.5, 0), 0.001)).toBeTruthy()
+			t.expect(nearV(tiltedPivot.XVector, Vector3.new(1, 0, 0), 0.001)).toBeTruthy()
+			t.expect(nearV(tiltedPivot.YVector, Vector3.new(0, 1, 0), 0.001)).toBeTruthy()
 		end)
 	end)
 
