@@ -1846,9 +1846,6 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 	session.DebugEscape = function()
 		handleEscape()
 	end
-	session.DebugClick = function()
-		handleClick()
-	end
 
 	return session
 end
