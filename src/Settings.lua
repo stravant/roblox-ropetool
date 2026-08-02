@@ -46,7 +46,7 @@ local function loadSettings(plugin: Plugin): RopeToolSettings
 		SelectAfterAdd = if raw.SelectAfterAdd ~= nil then raw.SelectAfterAdd else true,
 		Segments = raw.Segments or 10,
 		SegmentType = raw.SegmentType or "Cylinder",
-		Grouping = raw.Grouping or "Folder",
+		Grouping = raw.Grouping or "Model",
 		Sag = raw.Sag or 2,
 		Sway = raw.Sway or 0,
 		Diameter = raw.Diameter or 0.3,
