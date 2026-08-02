@@ -730,6 +730,20 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			return bestPriority, true
 		end
 
+		-- A hit part that is a segment of a multi-segment chain replaces its
+		-- own part-geometry snapping: a click landing ON a rope belongs on
+		-- the rope's centerline, not on the segment part's corners/edges.
+		-- Chain membership gates it: a LONE stick or post keeps its corner
+		-- snapping (attaching a rope to the top corner of a post), and so
+		-- does a plank that merely passes the segment test.
+		local hitSegment: RopeGraph.SegmentInfo? = nil
+		if part and currentSettings.SnapRopeEnds then
+			local segmentInfo = RopeGraph.getSegmentInfo(part)
+			if segmentInfo and RopeGraph.segmentHasContinuation(segmentInfo) then
+				hitSegment = segmentInfo
+			end
+		end
+
 		-- Tier 1: one pool of point candidates by screen distance -- the
 		-- (farther) endpoints and joints of nearby ropes competing with the
 		-- hit part's corners.
@@ -776,6 +790,7 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 			part
 			and currentSettings.SnapGeometry
 			and not meshEdge
+			and not hitSegment
 			and not (part:IsA("MeshPart") or part:IsA("UnionOperation"))
 		then
 			local ok, result = pcall(function()
@@ -791,6 +806,17 @@ local function createRopeSession(plugin: Plugin, currentSettings: Settings.RopeT
 
 		if bestPos then
 			return bestPos, true
+		end
+
+		-- A rope-segment hit beyond the reach of any end/joint candidate:
+		-- the point lands on the closest point of the rope's CENTERLINE (the
+		-- segment's axis), so between joints the snap stays in the middle of
+		-- the rope rather than on the part's surface.
+		if hitSegment then
+			local axisSpan = hitSegment.e2 - hitSegment.e1
+			local lenSq = axisSpan:Dot(axisSpan)
+			local along = if lenSq < 1e-6 then 0 else math.clamp((worldPos - hitSegment.e1):Dot(axisSpan) / lenSq, 0, 1)
+			return hitSegment.e1 + axisSpan * along, true
 		end
 
 		-- Tier 2: closest point along the hit part's nearest edge.

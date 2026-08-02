@@ -849,6 +849,50 @@ return function(t: TestTypes.TestContext)
 		end)
 	end)
 
+	t.test("clicking a rope between joints snaps onto its centerline", function()
+		withSession(function(session, settings)
+			-- A 2-segment rope over a wide span: long segments keep every
+			-- end/joint candidate far from a mid-segment click, so only the
+			-- centerline can catch it.
+			settings.Mode = "Add"
+			settings.Segments = 2
+			session.AddClickAt(kRegionCenter + Vector3.new(-14, 10, 0))
+			session.AddClickAt(kRegionCenter + Vector3.new(14, 10, 0))
+			local parts = findRopeParts()
+			t.expect(#parts).toBe(2)
+			local seg = parts[1]
+			-- A click on the segment's surface at its middle, like a raycast
+			-- hit: radially off the axis by the rope's radius.
+			local onSurface = seg.Position + seg.CFrame.UpVector * (seg.Size.Y / 2)
+			session.AddClickAt(onSurface, seg)
+			local first = session.GetAddFirstPoint()
+			t.expect(first).toBeTruthy()
+			t.expect(nearV(first, seg.Position, 0.01)).toBeTruthy()
+			session.DebugEscape()
+
+			-- With rope snapping off, the segment is just a part again: no
+			-- centerline pull.
+			settings.SnapRopeEnds = false
+			session.AddClickAt(onSurface, seg)
+			t.expect(nearV(session.GetAddFirstPoint(), seg.Position, 0.01)).toBeFalsy()
+			session.DebugEscape()
+			settings.SnapRopeEnds = true
+
+			-- A plank passes the segment test but is not rope-like: clicking
+			-- it keeps normal part snapping instead of pulling the point
+			-- inside to the plank's central axis.
+			local plank = Instance.new("Part")
+			plank.Size = Vector3.new(8, 2, 0.5)
+			plank.CFrame = CFrame.new(kRegionCenter + Vector3.new(0, -6, 0))
+			plank.Anchored = true
+			plank.Parent = workspace
+			local plankClick = plank.Position + Vector3.new(0.5, 0, 0.25)
+			session.AddClickAt(plankClick, plank)
+			local plankAxisPoint = plank.Position + Vector3.new(0.5, 0, 0)
+			t.expect(nearV(session.GetAddFirstPoint(), plankAxisPoint, 0.01)).toBeFalsy()
+		end)
+	end)
+
 	t.test("add points snap to the corners of clicked parts", function()
 		withSession(function(session, settings)
 			settings.Mode = "Add"

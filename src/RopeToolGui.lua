@@ -316,7 +316,7 @@ local function SnappingPanel(props: {
 		RopeEnds = e(HelpGui.WithHelpIcon, {
 			LayoutOrder = nextOrder(),
 			Subject = e(Checkbox, {
-				Label = "Rope Ends & Joints",
+				Label = "Other Ropes",
 				Checked = props.Settings.SnapRopeEnds,
 				Changed = function(checked: boolean)
 					props.Settings.SnapRopeEnds = checked
@@ -324,7 +324,7 @@ local function SnappingPanel(props: {
 				end,
 			}),
 			Help = e(HelpGui.BasicTooltip, {
-				HelpRichText = "Snap placed and dragged rope endpoints onto the ends and interior joints of nearby ropes, so ropes chain together exactly and can hang off the middle of one another.",
+				HelpRichText = "Snap placed and dragged rope endpoints onto nearby ropes: their ends, their interior joints, and -- clicking directly on a rope -- anywhere along its centerline. Ropes chain together and hang off one another exactly.",
 			}),
 		}),
 		GeometryEdges = e(HelpGui.WithHelpIcon, {

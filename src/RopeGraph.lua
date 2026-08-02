@@ -204,9 +204,58 @@ local function getSegmentInfo(instance: Instance): SegmentInfo?
 	}
 end
 
+-- Whether a segment is convincingly stick-like BY ITSELF (the lone-part rope
+-- gate, see kLonePartMinAspect; also gates snapping onto a clicked segment's
+-- centerline -- a plank passes the segment test but isn't a rope on its own).
+local function isStickLike(info: SegmentInfo): boolean
+	return info.aspect >= kLonePartMinAspect and info.crossRatio <= kLonePartMaxCrossRatio
+end
+
+-- Forward declarations for segmentHasContinuation, defined after the helpers
+-- it needs.
+local segmentsMatch: (a: SegmentInfo, b: SegmentInfo) -> boolean
+local joinTolerance: (a: SegmentInfo, b: SegmentInfo) -> number
+
+-- Whether some other matching segment continues this one at either of its
+-- endpoints -- i.e. the part is genuinely part of a multi-segment chain.
+-- Gates centerline snapping for a clicked part: a rope's mid-segment click
+-- belongs on the rope's centerline, but a LONE stick keeps normal part
+-- snapping (attaching a rope to the top corner of a post).
+local function segmentHasContinuation(info: SegmentInfo): boolean
+	local params = OverlapParams.new()
+	params.MaxParts = 1000
+	for endIndex, endpoint in { info.e1, info.e2 } do
+		local infoFar = if endIndex == 1 then info.e2 else info.e1
+		local searchRadius = joinTolerance(info, info) + 0.05
+		for _, candidate in workspace:GetPartBoundsInRadius(endpoint, searchRadius, params) do
+			if candidate ~= info.part then
+				local other = getSegmentInfo(candidate)
+				if other and segmentsMatch(info, other) then
+					for otherIndex, otherEnd in { other.e1, other.e2 } do
+						if (otherEnd - endpoint).Magnitude <= joinTolerance(info, other) then
+							local otherFar = if otherIndex == 1 then other.e2 else other.e1
+							local incoming = endpoint - infoFar
+							local outgoing = otherFar - otherEnd
+							if incoming.Magnitude > 0.001 and outgoing.Magnitude > 0.001 then
+								local du = incoming.Unit
+								local dv = outgoing.Unit
+								local angle = math.atan2(du:Cross(dv).Magnitude, du:Dot(dv))
+								if angle <= kMaxContinuationBendRadians then
+									return true
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+
 -- Property-overlap heuristic: adjacent parts belong to the same rope when
 -- enough of {kind, cross-section, color, material} agree.
-local function segmentsMatch(a: SegmentInfo, b: SegmentInfo): boolean
+function segmentsMatch(a: SegmentInfo, b: SegmentInfo): boolean
 	local matches = 0
 	if a.kind == b.kind then
 		matches += 1
@@ -230,7 +279,7 @@ end
 -- joints spaced closer than the diameter-based tolerance).
 local kJoinToleranceLengthFraction = 0.45
 
-local function joinTolerance(a: SegmentInfo, b: SegmentInfo): number
+function joinTolerance(a: SegmentInfo, b: SegmentInfo): number
 	local base = (a.diameter + b.diameter) / 2 * kJoinToleranceFraction
 	local lengthCap = math.min(a.length, b.length) * kJoinToleranceLengthFraction
 	return math.max(kJoinToleranceFloor, math.min(base, lengthCap))
@@ -601,10 +650,8 @@ local function discoverRope(seedPart: Instance): Rope?
 	-- The lone-part gate (see kLonePartMinAspect): a chain of just the seed,
 	-- with no endcaps vouching for it, is only a rope when the part is
 	-- convincingly stick-like on its own.
-	if #chainEdges == 1 and #caps == 0 then
-		if seedInfo.aspect < kLonePartMinAspect or seedInfo.crossRatio > kLonePartMaxCrossRatio then
-			return nil
-		end
+	if #chainEdges == 1 and #caps == 0 and not isStickLike(seedInfo) then
+		return nil
 	end
 
 	return {
@@ -771,6 +818,8 @@ end
 
 return {
 	getSegmentInfo = getSegmentInfo,
+	isStickLike = isStickLike,
+	segmentHasContinuation = segmentHasContinuation,
 	segmentsMatch = segmentsMatch,
 	discoverRope = discoverRope,
 	findRopeSnapPointsNear = findRopeSnapPointsNear,
